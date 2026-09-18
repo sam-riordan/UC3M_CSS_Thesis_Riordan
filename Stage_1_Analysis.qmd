@@ -1,0 +1,461 @@
+---
+title: "Stage_1_actual"
+format: html
+---
+
+
+# Load Packages
+
+```{r}
+library(dplyr)
+library(tidyr)
+library(readr)
+library(sandwich)
+library(lmtest)
+library(emmeans)
+```
+
+
+# Load data
+
+```{r}
+activities <- read_csv("data/activity_main.csv", 
+                       show_col_types = FALSE)
+
+selections_long <- read_csv("response/selections_long.csv",
+                            show_col_types = FALSE)
+```
+
+# Data handling
+
+Checks in `API_data_s1.qmd` identified:
+
+29 selections returned activity sentences that differed from the activity list provided, 28 of which were minor rewrites of the same activity ID. 
+* These minor mismatched sentences were retained as is.
+
+**One** of the 29 mismatched sentences (sonnet5) returned activity text for a different activity ID. No mismatched sentence was in the same axis cell and the reason provided was too vague to determine the intended selection. 
+* The selection was excluded due to its ambiguity (K_u = 14 for run_356, fixed budget).
+
+All 270 fixed budget runs returned exactly 15 selections before this exclusion. Selection shares (and the `log(K_u)` offset in the Poisson fits) accommodate run_356.
+
+```{r}
+selections_long <- selections_long |>
+  # remove the one ambiguous selection
+  filter(!(run_id == "run_356" & activity_id == "a_DN06"))
+
+# fixed budget compliance after cleaning
+selections_long |>
+  filter(condition == "k_fixed") |>
+  # selections per run after cleaning
+  count(run_id, name = "K") |> 
+  count(K) 
+```
+
+# Build data frame
+
+One row per run x cell, with zero counts filled in. The six cells are the actor x level combinations. `K_u` is the number of selections in a run and `s_uc = y_uc / K_u` is the within-run selection share, so the six shares sum to one in every run. `k_free` is the reference level of `condition`, so every contrast reads fixed minus free.
+
+```{r}
+# the six outcome cells (actor x level)
+axes <- activities |>
+  distinct(actor, level) |>
+  mutate(axis_cell = paste(actor, level, 
+                           sep = "_")) |>
+  arrange(axis_cell)
+
+sel_long <- selections_long |>
+  mutate(axis_cell = paste(actor, level, 
+                           sep = "_")) |>
+  # count produces rows for combinations 
+  count(run_id, condition, model, 
+        instruction_type, axis_cell, 
+        name = "y_uc") |>
+  # complete - adds rows missing (i.e., cell not selected in a run)
+  # nesting - add missing row for every run_id, condition, model and instruction_type combination
+  complete(nesting(run_id, condition, model, 
+                   instruction_type), 
+           axis_cell = axes$axis_cell, 
+           # set missing to 0 (rather than NA)
+           fill = list(y_uc = 0)) |>
+  group_by(run_id) |>
+  # K_u = selections in the run, s_uc = share of the run's selections in each cell
+  mutate(K_u = sum(y_uc), 
+         s_uc = y_uc / K_u) |>
+  ungroup() |>
+  mutate(condition = factor(condition, 
+                            levels = c("k_free", "k_fixed")),
+         axis_cell = factor(axis_cell),
+         model = factor(model),
+         instruction_type = factor(instruction_type))
+
+```
+
+
+# 4.1 Comparison of Experimental Setups
+
+Condition contrasts compare cell shares under the fixed (K = 15) and free budget. The free budget K is described first because it decides how the two arms can be weighted.
+
+## 1. Selections under a free budget (Table 1)
+
+If most of the variance in free budget K lies between models, K-weighting reweights models rather than buying precision (K-weights hand sonnet5 about half the free arm against a third of the fixed arm). Unweighted estimates are therefore primary. Each model contributes 90 runs per arm, so unweighted = model-balanced.
+
+```{r}
+# one row per free budget run
+runs_free <- sel_long |>
+  distinct(run_id, condition, model, K_u) |>
+  filter(condition == "k_free")
+
+table_1 <- runs_free |>
+  group_by(model) |>
+  summarise(mean_K = mean(K_u),
+            sd_K = sd(K_u),
+            # modal K (ties joined) and % of runs at the mode
+            mode_K = paste(names(which(table(K_u) == max(table(K_u)))), 
+                           collapse = " and "),
+            mode_pct = 100 * max(table(K_u)) / n(),
+            min_K = min(K_u),
+            max_K = max(K_u),
+            total_K = sum(K_u)) |>
+  # share of all free arm selections (fixed arm = 33.3% each)
+  mutate(free_weight = 100 * total_K / sum(total_K),
+         # change imposed by the fixed budget of 15
+         forced_change = 15 - mean_K)
+table_1
+
+# between-model share of the variance in free budget K
+aov_K <- aov(K_u ~ model, 
+             data = runs_free)
+summary(aov_K)
+
+# eta^2 = between-model sum_sq / total sum_sq
+sum_sq <- summary(aov_K)[[1]][["Sum Sq"]]
+sum_sq[1] / sum(sum_sq)
+```
+
+## 2. Fit condition model
+
+Condition contrasts use least squares on selection shares with run-clustered SEs. Each run contributes six rows whose shares sum to one, so the rows are correlated within a run. `condition * axis_cell` gives a separate condition effect for every cell, and heteroskedasticity is handled by the sandwich (no weighting needed for valid inference).
+
+```{r}
+# OLS on shares
+fit_cond <- lm(s_uc ~ condition * axis_cell, 
+               data = sel_long)
+
+# run-clustered sandwich 
+# HC0 without small-sample adjustment, same as the GEE sandwich in Stage 2
+V_cond <- vcovCL(fit_cond, 
+                 cluster = ~ run_id, 
+                 type = "HC0", 
+                 cadjust = FALSE)
+
+```
+
+## 3. Build Reference Grid
+
+`df = Inf` gives Wald z-tests and 95% CIs as estimate ± 1.96 SE.
+
+```{r}
+emm_cond <- emmeans(fit_cond, ~ condition | axis_cell, 
+                    vcov. = V_cond, 
+                    df = Inf)
+```
+
+## 4. Wald contrasts, fixed vs. free (Table 2)
+
+Estimates are percentage points (fixed minus free). BH-FDR is applied across the six cells as one family. Because shares sum to one within a run, the six contrasts sum to zero by construction. The K-weighted contrast (`K_weight`) is reported alongside for comparison.
+
+```{r}
+# free and fixed shares per cell (%), unweighted (primary) and K-weighted
+shares <- sel_long |>
+  summarise(pct = 100 * mean(s_uc),
+            # K-weighted = pooled share of all selections
+            pct_K = 100 * sum(y_uc) / sum(K_u),
+            .by = c(condition, axis_cell)) |>
+  pivot_wider(names_from = condition, 
+              values_from = c(pct, pct_K)) |>
+  mutate(K_weight = pct_K_k_fixed - pct_K_k_free)
+
+table_2 <- contrast(emm_cond, 
+                    method = "trt.vs.ctrl", 
+                    ref = 1, 
+                    adjust = "none") |>
+  summary(infer = TRUE) |>
+  as_tibble() |>
+  # proportions to percentage points
+  mutate(across(c(estimate, SE, asymp.LCL, asymp.UCL), 
+                \(x) 100 * x),
+         q = p.adjust(p.value, 
+                      method = "BH")) |> # BH across the six cells
+  left_join(shares, 
+            by = "axis_cell")
+# columns: estimate (pp), asymp.LCL, asymp.UCL, z.ratio (Wald chi2 = z.ratio^2), p.value, q, unweighted (pct) and K-weighted (pct_K) shares, delta_K
+table_2 |> select(axis_cell, 
+                  estimate,
+                  q, asymp.LCL, 
+                  asymp.UCL,
+                  pct_k_free,
+                  pct_k_fixed)
+# For Annex 
+table_2 |> select(K_weight,
+                  pct_K_k_free,
+                  pct_K_k_fixed)
+```
+
+### Heterogeneity across models and instruction types (Table 3)
+
+```{r}
+fit_het <- lm(s_uc ~ condition * axis_cell * model + condition * axis_cell * instruction_type,
+              data = sel_long)
+
+# run clustered sandwich SEs 
+V_het <- vcovCL(fit_het, 
+                cluster = ~ run_id, 
+                type = "HC0", 
+                cadjust = FALSE)
+
+# omnibus: condition x cell x model
+waldtest(update(fit_het, . ~ . - condition:axis_cell:model), 
+         fit_het, 
+         test = "Chisq", 
+         vcov = V_het)
+
+# omnibus: condition x cell x instruction type
+waldtest(update(fit_het, . ~ . - condition:axis_cell:instruction_type), 
+         fit_het, 
+         test = "Chisq", 
+         vcov = V_het)
+```
+
+Per axis cell to see if the condition effect differs across the three models (or instruction types).
+
+```{r}
+het_by <- function(fac) {
+  emmeans(fit_het, 
+          as.formula(paste("~ condition *", fac, "| axis_cell")),
+          vcov. = V_het, 
+          df = Inf) |>
+    # (fixed - free) compared pairwise across the levels of fac
+    contrast(interaction = c("trt.vs.ctrl", "pairwise"), 
+             by = "axis_cell", 
+             adjust = "none") |>
+    test(joint = TRUE, 
+         by = "axis_cell") |>
+    as_tibble() |>
+    mutate(chisq = qchisq(p.value, df1, 
+                          lower.tail = FALSE),
+           q = p.adjust(p.value, 
+                        method = "BH")) |> # BH within column
+    select(axis_cell, df1, chisq, p.value, q)
+}
+
+table_3 <- left_join(het_by("model"), 
+                     het_by("instruction_type"),
+                     by = "axis_cell", 
+                     suffix = c("_model", "_instr"))
+table_3 |> select(axis_cell, 
+                  chisq_model,
+                  q_model,
+                  chisq_instr,
+                  q_instr) |> 
+  rename("Axis Cell" = axis_cell, 
+         " χ^2 (model)" = chisq_model,
+         "q (model)" = q_model,
+         "χ^2  (instruction)" =chisq_instr,
+         "q (instruction)" = q_instr)
+
+
+```
+
+### Model-specific condition contrasts (Table 4)
+
+All six cells x three models, BH-FDR across the 18 contrasts as one family (fixed before looking at Table 3, so the family does not depend on which cells were heterogeneous).
+
+```{r}
+table_4 <- emmeans(fit_het, ~ condition | axis_cell * model, 
+                   vcov. = V_het, 
+                   df = Inf) |>
+  contrast(method = "trt.vs.ctrl", 
+           ref = 1, 
+           adjust = "none") |>
+  summary(infer = TRUE) |>
+  as_tibble() |>
+  mutate(across(c(estimate, SE, asymp.LCL, asymp.UCL), 
+                \(x) 100 * x),
+         q = p.adjust(p.value, 
+                      method = "BH")) # BH across 18 contrasts
+table_4 |> filter(axis_cell == c("downstream_high_cog", 
+                                 "downstream_low_cog", 
+                                 "upstream_low_cog")) |> 
+  # filter heterogenous cells
+  select(axis_cell,
+         model, 
+         estimate, 
+         asymp.LCL,
+         asymp.UCL, 
+         q)
+```
+
+
+# Power analysis for Stage 2 replication count
+
+For each model x instruction stratum, find the smallest R giving ≥ 80% power to detect the target RR, using that stratum's own Stage 1 composition. The Stage 2 count is the 80th percentile across the nine strata, taking the larger of the two tiers (as in Jung et al., Appendix E.1).
+
+The simulation targets the pairwise model and instruction contrasts, where the null RR = 1 is substantive. Composition contrasts (cell vs. cell) were already resolved at Stage 1 and need no power target. Model is a moderator of the condition effect (Table 3), so R is computed per stratum rather than pooled.
+
+## 1. Settings
+
+* RR = 1.50 (cell tier) is roughly half the narrowest cross-cell spread in any stratum (checked in step 2), and matches the source design.
+* RR = 1.20 (actor tier) aggregates six cells into three actors, so larger counts per group make a smaller RR comparably demanding.
+* The level margin (two groups of three cells) is better powered than the actor margin at any RR, so it needs no tier of its own.
+
+```{r}
+# fixed budget (Stage 2 condition)
+k_budget <- 15 
+alpha <- 0.05
+# within-stratum power target
+power_t <- 0.80 
+# across-strata coverage quantile
+cover_q <- 0.80 
+# simulations per (stratum, R)
+n_sim <- 1000 
+# candidate replication counts, ascending
+r_grid <- seq(20, 400, by = 20) 
+
+rr_cell <- 1.50  
+rr_actor <- 1.20
+
+cells <- axes$axis_cell
+# actor of each cell, same order as cells
+actor_of <- axes$actor
+```
+
+## 2. Strata inputs
+
+One row per stratum from the fixed arm with:
+* dispersion from a Poisson fit (Pearson χ²/df and deviance/df). φ ≤ 1 (no overdispersion) means the multinomial draws below are not too optimistic, so no overdispersion correction is needed.
+* `spread` = largest / smallest cell share, which rr_cell should sit well below. 
+* the target group = the smallest cell and the smallest actor. The hardest pairing to detect, so its R covers every other pairing.
+* `p_hat` = baseline composition used in the simulation.
+
+```{r}
+strata <- sel_long |>
+  filter(condition == "k_fixed") |>
+  group_by(model, instruction_type) |>
+  group_modify(~ {
+    m <- glm(y_uc ~ axis_cell + offset(log(K_u)), 
+             family = poisson, 
+             data = .x)
+    # baseline composition, in cells order
+    p <- tapply(.x$s_uc, .x$axis_cell, mean)[cells]
+    tibble(phi_hat = sum(residuals(m, type = "pearson")^2) / df.residual(m),
+           dev_ratio = deviance(m) / df.residual(m),
+           spread = max(p) / min(p),
+           target_cell = names(which.min(p)),
+           target_actor = names(which.min(tapply(p, actor_of, sum))),
+           p_hat = list(p))
+  }) |>
+  ungroup()
+strata
+
+# phi_p90 across the nine strata
+quantile(strata$phi_hat, 0.90)
+# narrowest spread (rr_cell should be about half of this or less)
+min(strata$spread)
+```
+
+## 3. Simulation functions
+
+Each simulated dataset is a two-group comparison: R runs drawn from a stratum's `p_hat` and R runs from the H1 composition, where the target group's share is multiplied by RR. Multinomial draws keep counts summing to K = 15 within a run, which reproduces the underdispersion in step 2. The test is a Poisson fit with robust SEs, one row per run, matching the independence GEE in Stage 2.
+
+```{r}
+# H1 composition: target group x rr, other cells rescaled so the shares sum to 1
+make_p1 <- function(p0, hit, rr) {
+  s0 <- sum(p0[hit])
+  p0[hit] <- p0[hit] * rr
+  p0[!hit] <- p0[!hit] * (1 - s0 * rr) / (1 - s0)
+  p0
+}
+
+# p-value for one simulated dataset with r runs per group
+p_value_once <- function(r, p0, p1, hit) {
+  # draws are cells x runs, colSums of the target rows = target count per run
+  y <- c(colSums(rmultinom(r, k_budget, p0)[hit, , drop = FALSE]),
+         colSums(rmultinom(r, k_budget, p1)[hit, , drop = FALSE]))
+  grp <- rep(0:1, each = r)
+  # K is constant, so the log(K) offset is absorbed by the intercept
+  m <- glm(y ~ grp, 
+           family = poisson)
+  V <- vcovHC(m, type = "HC0")
+  2 * pnorm(-abs(coef(m)[["grp"]] / sqrt(V["grp", "grp"])))
+}
+
+# smallest R on the grid reaching the power target (NA = grid exhausted)
+required_R <- function(p0, hit, rr) {
+  p1 <- make_p1(p0, hit, rr)
+  for (r in r_grid) {
+    power <- mean(replicate(n_sim, p_value_once(r, p0, p1, hit)) < alpha)
+    if (power >= power_t) return(r)
+  }
+  NA_integer_
+}
+```
+
+## 4. Required R and decision
+
+`quantile(type = 1)` returns an R that was actually simulated, so at least 80% of strata (8 of 9) reach the power target. The default interpolated quantile can land between grid values and cover fewer (e.g., 148 covers 7 of 9 on the actor tier). The hardest stratum is deliberately not covered by the 80th percentile criterion.
+
+```{r}
+set.seed(2026)
+req_tbl <- strata |>
+  rowwise() |>
+  mutate(r_cell = required_R(p_hat, 
+                             cells == target_cell, 
+                             rr_cell),
+         r_actor = required_R(p_hat, 
+                              actor_of == target_actor, 
+                              rr_actor)) |>
+  ungroup()
+
+# check that a stratum has not exhausts the grid would silently drop out of the quantile - widen r_grid instead
+stopifnot(!anyNA(req_tbl$r_cell), 
+          !anyNA(req_tbl$r_actor))
+
+# 80th percentile across strata, larger of the two tiers
+r_stage2 <- max(quantile(req_tbl$r_cell, 
+                         cover_q, 
+                         type = 1),
+                quantile(req_tbl$r_actor, 
+                         cover_q, 
+                         type = 1))
+
+req_tbl |>
+  select(model, instruction_type, 
+         target_cell, r_cell, 
+         target_actor, r_actor)
+r_stage2
+
+# strata reaching the power target at r_stage2 (of 9)
+req_tbl |>
+  summarise(cell = sum(r_cell <= r_stage2),
+            actor = sum(r_actor <= r_stage2))
+```
+
+## 5. Validation
+
+Null calibration in the hardest stratum (smallest expected counts, where an asymptotic test is most likely to drift): with rr = 1 the rejection rate at `r_stage2` should sit near alpha, i.e. the binomial CI should cover 0.05.
+
+```{r}
+set.seed(2026)
+# stratum with the largest r_cell
+worst <- which.max(req_tbl$r_cell)
+p0 <- req_tbl$p_hat[[worst]]
+hit <- cells == req_tbl$target_cell[worst]
+
+# p1 = p0 (no effect)
+p_null <- replicate(n_sim, 
+                    p_value_once(r_stage2, p0, 
+                                 p0, hit))
+binom.test(sum(p_null < alpha), 
+           n_sim, 
+           p = alpha)
+```

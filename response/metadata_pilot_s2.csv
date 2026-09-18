@@ -1,0 +1,4 @@
+model,instruction_type,condition,replicate,budget,k,provider,model_id,role,run_id,presentation_seed,status,ok,stop_reason,input_tokens,output_tokens,error
+gpt_terra,basic,k_fixed,26,fixed,15,openai,gpt-5.6-terra,primary,run_026,10002052,success,TRUE,completed,3626,1043,NA
+sonnet5,creativity,k_fixed,70,fixed,15,anthropic,claude-sonnet-5,primary,run_870,10002896,success,TRUE,end_turn,6873,2422,NA
+gemini3_8,basic,k_fixed,5,fixed,15,google,gemini-3.8-flash,primary,run_965,10002991,success,TRUE,STOP,3949,1224,NA

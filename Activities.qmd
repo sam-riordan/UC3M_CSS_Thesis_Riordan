@@ -1,0 +1,133 @@
+---
+title: "working_thesis_ACTIVITIES"
+format: html
+---
+
+Design: Jung et al., "Style over Story" (arXiv:2510.02025v4)
+
+# packages
+```{r}
+library(tidyverse)
+library(readxl)
+library(glue) # create activity sentence
+library(sylcount) # check sentence metrics 
+```
+
+
+# Activity library
+
+Structure: 15 topics x 3 actors x 2 levels = 90 activities.
+
+- **primary hidden axis =** `actor` (upstream, midstream, downstream)
+
+- **secondary hidden axis =** `level` (low-cognitive complexity,
+  high-cognitive complexity)
+
+- `topic` is the consumption proxy for each IPCC mitigation strategy
+  (appliances; solar; refrigerants; travel; insulation; wood products;
+  plastics; smartphones; food waste; heating; urban greening; clothing;
+  steel)
+
+## Load action bank
+
+```{r}
+actions <- read_excel("data/activity_bank.xlsx") 
+actions
+```
+
+## Wrap each action in the sentence template
+
+Every activity is the same sentence template with one action inserted
+into it.
+
+```{r}
+sentence_template <- "Students examine recommendations to {action} and determine how the strategy could limit anthropogenic impact on Earth's systems."
+
+activity <- actions |>
+  mutate(activity = as.character(
+    glue_data(pick(everything()), 
+              sentence_template)))
+
+activity 
+
+```
+
+## Build the library
+
+Build text to send to LLM and save to csv.
+
+```{r}
+# Generate random activity ID 
+# OPTION 
+pool <- as.vector(outer(
+  as.vector(outer(LETTERS, LETTERS, paste0)),
+  sprintf("%02d", 0:99), paste0))
+lib <- activity |>
+  arrange(topic, actor, level) |>
+  mutate(activity_id = paste0("a_", sample(pool, n())))
+
+set.seed(123)
+activity_list <- activity |>
+  arrange(topic, actor, level) |> 
+  # add ID to match LLM selection 
+  mutate(activity_id = replicate(n(),
+         paste(c("a_",
+                 sample(LETTERS, 2, replace = TRUE),
+                 sample(0:9, 2, replace = TRUE)), 
+                      collapse = "")))
+  
+write_csv(activity_list, "data/activity_main.csv")
+
+```
+
+# Sentence metrics
+
+Items were held constant in surface form. Length ranged from 24 to 28 words (M = 25.7) and syllables per word from 1.75 to 2.24 (M = 2.03).
+
+```{r}
+# Check that sentence template and unique IDs worked 
+n_distinct(activity_list$activity)
+n_distinct(activity_list$activity_id)
+
+
+# Metrics  
+# REDO THIS FOR OTHER METRICS SUITABLE FOR SENTENCE 
+read_stats <- readability(activity_list$activity) |>
+  as_tibble() |>
+  select(n_chars = chars, # Characters per sentence
+         n_words_total = words, # Total words per sentence 
+         n_sents = sents, # Check how many sentences
+         n_syll = sylls) # number of syllables in the sentence
+
+metrics <- activity_list |>
+  bind_cols(read_stats) |>
+  mutate(
+    syll_per_word = n_syll / n_words_total,
+    mean_word_len = n_chars / n_words_total)
+
+metrics
+
+
+# Overall
+metrics |>
+  summarise(min = min(n_words_total), 
+            max = max(n_words_total),
+            mean = round(mean(n_words_total), 1),
+            sd = round(sd(n_words_total), 2))
+
+# By cell 
+metrics |>
+  group_by(actor, level) |>
+  summarise(n = n(),
+            words_min = min(n_words_total),
+            words_max = max(n_words_total),
+            words_mean = round(mean(n_words_total), 1),
+            words_sd = round(sd(n_words_total), 2),, 
+            syl_min = min(syll_per_word), 
+            syl_max = max(syll_per_word),
+            .groups = "drop") |>
+  mutate(words_range = words_max - words_min)
+
+```
+
+

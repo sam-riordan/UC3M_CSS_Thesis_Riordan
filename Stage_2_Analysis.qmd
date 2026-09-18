@@ -1,0 +1,656 @@
+---
+title: "Stage_2"
+format: html
+---
+
+# Load Packages 
+
+```{r}
+library(geepack)
+library(emmeans) 
+library(dplyr)
+library(tidyr)
+library(sandwich)
+library(readr)
+library(stringr)
+```
+
+
+# Load data
+
+```{r}
+activities <- read_csv("data/activity_main.csv", 
+                       show_col_types = FALSE)
+
+selections_long <- read_csv("response/selections_long_s2.csv",
+                            show_col_types = FALSE)
+```
+
+# Data handling
+
+Checks in `API_data_s2.qmd` identified:
+
+**Four** GTP-Terra runs returned one activity twice, each time with an identical reason indicating repetition rather than deliberate selection.
+* Duplicates were collapsed and only counted once (K_u = 14 for run_080, run_218, run_399 and run_407).
+
+**One** sonnet5 run returned 16 activity selections. 
+* All 16 selections for the run were retained, as selection order carries no information under the output instructions (K_u = 16 for run_564).
+
+76 selections returned activity sentences that differed from the activity list provided. 72 of which were minor rewrites of the same activity ID. 
+* These minor mismatched sentences were determined to be okay to left as is. 
+
+**Four** of the 76 mismatched sentences from Sonnet 5 returned activity text for a different activity ID. No mismatched sentences were in the same axis category and the reasons provided for each selection were too vague to determine the intended selection. 
+* All four mismatched sentences were excluded due to their ambiguity (K_u = 14 for run_492, run_589, run_732 and run_753) 
+
+**One** sonnet5 response was an invalid JSON but was fully recovered by per-object parsing (k = 15 for RUN?????????????????????????????).
+And why it was invalid Code: bad <- main_check |> filter(!valid_clean)
+attr(validate(str_trim(str_remove_all(bad$text, "```[A-Za-z]*"))), "err") 
+
+The Poisson offset `log(K_u)` accommodates the five runs where K_u ≠ 15.
+
+21601 minus 8 = 21594
+
+```{r}
+# normalise and clean text string in case of minor changes 
+# removes random spaces, makes everything lowercase
+norm <- function(x) {
+  x |> 
+    # remove puntuation, new lines etc. 
+    str_replace_all("[^A-Za-z0-9 ]", " ") |> 
+    str_to_lower() |> 
+    str_squish()
+}
+
+selections_long <- selections_long |>
+  # collapse duplicates w/ identical reasoning
+  distinct(run_id, activity_id,
+           .keep_all = TRUE) |> 
+  mutate(text_match_id = activity_id[
+    # match finds the activity that matches to the activity returned
+    match(norm(activity_returned), 
+          norm(activity))],
+    # keep the 72 NAs, remove only the four ambiguous one
+    remove = !is.na(text_match_id) & activity_id != text_match_id) |> 
+    filter(!remove) |> 
+  select(c(-remove, -text_match_id))
+
+# Check K after cleaning
+selections_long |>
+  count(run_id, name = "K") |> # selections per run after cleaning
+  count(K) # how many runs have each K
+
+```
+
+# Actor
+
+##Build data frame
+
+One row per run x category, with zero counts filled in. Reference levels are the largest categories from Stage 1 (upstream, low_cog, and upstream_low_cog, the largest cell in all nine strata), which gives the smallest SEs on every rate ratio. Rows are sorted by `run_id`, which `geeglm` requires.
+
+```{r}
+
+# one row per selected activity, with actor mapped
+data_actor <- selections_long |> 
+  # count produces rows for comibinations 
+  count(run_id, model, 
+        instruction_type, actor, 
+        name = "y") |>
+  # complete - adds rows missing (i.e., not selected in a run)
+  # nesting - add missing row for every run_id, model and instruction_type combination 
+  complete(nesting(run_id, model, 
+                   instruction_type), 
+           actor, 
+           # set missing to 0 (rather than NA)
+           fill = list(y = 0)) |>
+  # geeglm requires clusters to be sequenced
+  group_by(run_id) |> 
+  mutate(K = sum(y)) |> 
+  ungroup() |>
+  mutate(actor = relevel(factor(actor),
+                         ref = "upstream"),
+         model = factor(model), 
+         instruction_type = factor(instruction_type),
+         # geeglm requires ordered clusters as integers
+         run_id = as.integer(factor(run_id))) |>
+  arrange(run_id, actor)
+
+```
+
+
+# 4.2 Selection Patterns
+analyse run–actor counts with a run–clustered Poisson GEE using actor effects and actor×(model, instruction type) interactions (no intercept). We do not include model×instruction type (or higher-order) interactions, so prompt contrasts are averaged over models and vice versa. We report:
+
+(i)	actor rate ratios (RRs) relative to Event, which we use as an arbitrary reference category, and; 
+(ii)	within–actor pairwise RRs for model and for instruction type.
+
+##1. Fit Poisson GEEs
+
+Poisson GEEs with `offset(log(K_u))`, clustered by run, with robust (sandwich) SEs. The primary specification uses an independence working correlation. Counts sum to K within a run, so categories are negatively correlated by construction and an exchangeable structure sits at or beyond its positive-definite boundary (−0.20 cell, −0.50 actor, −1.00 level). Independence with robust SEs also matches the estimator assumed in the Stage 1 Step 7 power simulation. An exchangeable version is reported as a robustness check (Step 8).
+
+Contrasts are extracted unadjusted, then BH-FDR is applied across each table as one family. A contrast is reported when q ≤ .05 and its rate ratio meets the powered target in either direction (RR ≥ 1.20 for actor contrasts, RR ≥ 1.50 for cell contrasts, symmetric on the log scale).
+
+```{r}
+# Poisson GEE - no intercept - exposure offset log K 
+# actor, actor*model, actor*intruction effects
+# prompt contrasts averages over models 
+# Sandwich SEs are default (std.err = "san.se")
+fit_actor <- geeglm(y ~ 0 + actor + actor:model + actor:instruction_type + offset(log(K)),
+                 family = poisson, 
+                 data = data_actor, 
+                 #cluster by run 
+                 id = run_id,
+                 # correlation structure: exchangeable
+                 # all obs within the cluster (run_id) share equal correlation 
+                 corstr = "independence")
+
+```
+
+##2. Model Adequacy 
+
+Across all Poisson GEE fits, dispersion diagnostics were below unity (elements: Pearson χ2/df = 0.567, deviance/df = 0.611; 
+categories: χ2/df = 0.402–0.664, deviance/df = 0.454–0.740), 
+with many run clusters (elements: n = 2,880; categories: n = 2,793–2,880; 
+WHY runs with K_elem = 0 excluded from the corresponding element-specific category models); 
+
+we therefore report run-clustered robust (sandwich) SEs and fit Poisson GEEs with an exchangeable working correlation by default;
+
+when the GEE fit failed or produced invalid covariance estimates: 
+* we refit the model using an independence working correlation; 
+* if that specification also failed, we used a Poisson GLM with run-clustered robust covariance as a fallback.
+
+Dispersion diagnostics (actor: Pearson χ2/df - deviance/df)
+run clusters (actor: )
+
+```{r}
+# Pearson chi2 / residual degrees of freedom 
+sum(residuals(fit_actor, 
+              type = "pearson")^2) / df.residual(fit_actor)  
+# deviance/df
+glm_actor <- glm(formula(fit_actor), 
+                 family = poisson, 
+                 data = data_actor)
+
+# gives a dispersion parameter estimate to check if the independence working correlation assumption is valid
+deviance(glm_actor) / df.residual(glm_actor)
+
+```
+
+##3. Build Reference Grid 
+averages over model and instruction type. offset = 0 returns rates per unit of exposure. The ratios are the same either way, because the offset cancels in contrasts.
+
+
+```{r}
+emm_actor <- emmeans(fit_actor, ~ actor, 
+                     offset = 0, 
+                     data = data_actor)
+```
+
+
+##4. Wald contrasts vs. Upstream (rate ratios)
+Inference uses Wald χ2(1) tests on log–rate contrasts with robust covariance, and 95% CIs are exp(ˆθ ± 1.96 SE). Tables indicate the number of run clusters. We report pairwise differences only when BH–FDR q < .05 and |∆%| ≥ 10.
+
+(i)	actor rate ratios (RRs) relative to upstream, which we use as an arbitrary reference category, and 
+(ii)	within–actor pairwise RRs for model and for instruction type.
+
+
+```{r}
+table_2 <- contrast(emm_actor, 
+                    method = "trt.vs.ctrl", 
+                    ref = 1, 
+                    adjust = "none") |>
+  summary(infer = TRUE, type = "response")
+# columns: ratio (= RR), asymp.LCL, asymp.UCL, z.ratio (Wald chi2 = z.ratio^2), p.value
+table_2
+```
+
+### Cross-Model stability in actor Preferences 
+```{r}
+table_3 <- emmeans(fit_actor, ~ model | actor, 
+                   offset = 0, 
+                   data = data_actor) |>
+  pairs(adjust = "none") |>
+  summary(infer = TRUE, 
+          type = "response") |>
+  as_tibble() |>
+  mutate(q = p.adjust(p.value, 
+                      method = "BH"), # Step 5: BH
+         delta = (ratio - 1) * 100) |> # Delta% = (RR - 1) x 100
+  filter(q < .05, abs(delta) >= 10) |> # Step 6: reporting filter
+  group_by(actor) |> 
+  slice_max(abs(delta), n = 3)
+
+table_3
+
+```
+
+### Instruction stability in actor preference
+```{r}
+table_4 <- emmeans(fit_actor, ~ instruction_type | actor, 
+                   offset = 0, 
+                   data = data_actor) |>
+  pairs(adjust = "none") |>
+  summary(infer = TRUE, 
+          type = "response") |>
+  as_tibble() |>
+  mutate(q = p.adjust(p.value, 
+                      method = "BH"), # Step 5: BH
+         delta = (ratio - 1) * 100) |> # Delta% = (RR - 1) x 100
+  filter(q < .05, abs(delta) >= 10) |> # Step 6: reporting filter
+  group_by(actor) |> 
+  slice_max(abs(delta), n = 3)
+
+table_4
+
+```
+
+NOTE - SUPER SMALL N PER RUN
+# Levels H,L Analysis 
+Category-level analyses use four fits, one per element, on run × category rows with offset log(K_elem), dropping runs where K_elem = 0.
+
+Two interpretation notes
+
+Your rate ratios are odds. With two levels, low_cog's share is p and high_cog's is 1 − p, so the low/high rate ratio from this model is the odds of choosing low_cog within that actor. The interaction ratios are therefore odds ratios. A binomial GEE on cbind(y_low, y_high) would be an equivalent, arguably more natural, model. That same constraint is why the exchangeable correlation sits at −1.
+
+Keep the two offsets for two different questions. Offset log(K_actor) asks: given the selections an actor received, how were they split between levels? Offset log(K) asks: which actors receive more selections overall? The interaction contrasts above compare splits, so K_actor is the right offset. Differences in overall actor volume belong in the actor-level model.
+
+## Build Data frame 
+
+
+```{r}
+
+df_levels <- selections_long |> 
+    mutate(actor = factor(actor, 
+                          levels = c("upstream", 
+                                     "midstream", 
+                                     "downstream")),
+           level = factor(level, 
+                          levels = c("high_cog", 
+                                     "low_cog"))) |>
+  # count produces rows for comibinations 
+  count(run_id, model, instruction_type, 
+        actor, level, 
+        name = "y") |>
+  # complete - adds rows missing (i.e., not selected in a run)
+  # nesting - add missing row for every run_id, model, instruction_type across every actor and level combination 
+  complete(nesting(run_id, model, instruction_type), 
+           # cross actor*level
+           actor, level, 
+           # set missing to 0 (rather than NA)
+           fill = list(y = 0)) |>
+  # run budget for actor-level (4.2) model
+  group_by(run_id) |> 
+  mutate(K = sum(y)) |>
+  # run budget for within-actor (4.3) model
+  group_by(run_id, actor) |>
+  mutate(K_actor = sum(y)) |>            
+  ungroup() |>
+  mutate(model = factor(model), 
+         instruction_type = factor(instruction_type),
+         run_id = as.integer(factor(run_id)))
+
+
+data_levels <- df_levels |>
+  # offset log(0) = -Inf; rows carry no information
+  filter(K_actor > 0) |>
+  # geeglm needs each run's rows contiguous
+  arrange(run_id, actor, level)
+
+```
+
+
+# Actor*level actual 
+To compare cells across actors, use a 6-cell Poisson GEE with offset log(K), the run's total budget. This is the paper's element-level model with your six actor × level cells in place of the four elements. Each cell's rate is then its share of the whole run's selections, which makes any two cells directly comparable.
+
+```{r}
+data_cells <- df_levels |> 
+  arrange(run_id, actor, level)
+stopifnot(all(data_cells$K > 0))   # drop any zero-selection runs first; log(0) = -Inf
+
+# Fit GEE
+fit_cell <- geeglm(y ~ 0 + actor:level + actor:level:model + actor:level:instruction_type + offset(log(K)),
+                   family = poisson, 
+                   data = data_cells, 
+                   id = run_id, 
+                   corstr = "independence")
+
+# Model Adequacy 
+# Pearson chi2 / residual degrees of freedom 
+sum(residuals(fit_cell, 
+              type = "pearson")^2) / df.residual(fit_cell)  
+# deviance/df
+glm_cells <- glm(formula(fit_cell), 
+                 family = poisson, 
+                 data = data_cells)
+
+# gives a dispersion parameter estimate to check if the independence working correlation assumption is valid
+deviance(glm_cells) / df.residual(glm_cells)                        
+
+
+
+
+# global 
+emm_cell <- emmeans(fit_cell, ~ actor * level, 
+                    offset = 0, 
+                    data = data_cells)
+
+# All 15 cell-vs-cell rate ratios, averaged over model and instruction
+tab_cells <- pairs(emm_cell, 
+                   adjust = "none") |>
+  summary(infer = TRUE, 
+          type = "response") |>
+  as_tibble() |>
+  mutate(q = p.adjust(p.value, method = "BH"),
+         delta = (ratio - 1) * 100)
+# ratio follows the label order, e.g. "upstream low_cog / downstream high_cog"; 1/ratio flips it
+tab_cells
+
+
+
+```
+
+
+```{r}
+emm_act_lev <- emmeans(fit_cell, ~ level * actor, 
+                       offset = 0,
+                       data = data_cells, 
+                       nesting = NULL)
+
+# 1. Within-actor split (4.3.1 analogue): low_cog / high_cog in each actor
+tab_split <- contrast(emm_act_lev, 
+                      method = "trt.vs.ctrl", 
+                      by = "actor", 
+                      adjust = "none") |>
+  summary(infer = TRUE, 
+          type = "response")
+
+tab_split
+
+# 2. Does the split differ across actors? (tests the reversal)
+ic_actor <- contrast(emm_act_lev, 
+                     interaction = c("trt.vs.ctrl", "pairwise"), 
+                     adjust = "none")
+test(ic_actor, joint = TRUE) # omnibus Wald test, df1 = 2
+
+tab_actor_int <- summary(ic_actor, 
+                         infer = TRUE, 
+                         type = "response") |>
+  as_tibble() |>
+  mutate(q = p.adjust(p.value, 
+                      method = "BH"))
+tab_actor_int
+
+
+# 3 & 4. Does the split differ across models / instructions within each actor?
+split_by <- function(fac) {
+  ic <- emmeans(fit_cell, 
+                as.formula(paste("~ level *", fac, "| actor")),
+                offset = 0, 
+                data = data_cells, 
+                nesting = NULL) |>
+    contrast(interaction = c("trt.vs.ctrl", "pairwise"), 
+             by = "actor", 
+             adjust = "none")
+  list(omnibus = test(ic, joint = TRUE, 
+                      by = "actor"),
+       pairs = summary(ic, infer = TRUE, 
+                       type = "response") |>
+         as_tibble() |> 
+         mutate(q = p.adjust(p.value, 
+                             method = "BH")))
+}
+tab_split_model <- split_by("model")# 3 actors x 3 model pairs
+tab_split_instr <- split_by("instruction_type")  # 3 actors x 3 instruction pairs
+tab_split_model
+tab_split_instr
+
+# Per-model split within each actor
+emmeans(fit_cell, ~ level | actor * model, offset = 0,
+        data = data_cells, nesting = NULL) |>
+  contrast("trt.vs.ctrl", adjust = "none") |>
+  summary(infer = TRUE, type = "response")
+
+# Does the reversal hold within each model?
+emmeans(fit_cell, ~ level * actor | model, offset = 0,
+        data = data_cells, nesting = NULL) |>
+  contrast(interaction = c("trt.vs.ctrl", "pairwise"), by = "model", adjust = "none") |>
+  summary(infer = TRUE, type = "response")
+```
+
+
+
+
+
+# Maybe - Appendix 
+6-cell GEE 
+
+```{r}
+# Model stability 
+tab_cells_m <- emmeans(fit_cell, ~ model | actor * level, 
+                   offset = 0, 
+                   data = data_cells) |>
+  pairs(adjust = "none") |>
+  summary(infer = TRUE, 
+          type = "response") |>
+  as_tibble() |>
+  mutate(q = p.adjust(p.value, 
+                      method = "BH"), # Step 5: BH
+         delta = (ratio - 1) * 100) |> # Delta% = (RR - 1) x 100
+  filter(q < .05, abs(delta) >= 10) |> # Step 6: reporting filter
+  group_by(actor, level)
+
+tab_cells_m
+
+# Instruction Stability 
+tab_cells_i <- emmeans(fit_cell, ~ instruction_type | actor * level, 
+                   offset = 0, 
+                   data = data_cells) |>
+  pairs(adjust = "none") |>
+  summary(infer = TRUE, 
+          type = "response") |>
+  as_tibble() |>
+  mutate(q = p.adjust(p.value, 
+                      method = "BH"), # Step 5: BH
+         delta = (ratio - 1) * 100) |> # Delta% = (RR - 1) x 100
+  filter(q < .05, abs(log(delta)) >= 10) |> # Step 6: reporting filter
+  group_by(actor, level)
+tab_cells_i
+```
+
+
+
+
+
+# Model Adequacy (refits)
+
+when the GEE fit failed or produced invalid covariance estimates, we refit the model using an independence working correlation; if that specification also failed, we used a Poisson GLM with run-clustered robust covariance as a fallback.
+
+Zero cells are a practical problem when models never select an actor or level, so the coefficients move towards −∞, and the exchangeable GEE may fail or return unusable SEs. 
+Compact version:
+```{r}
+fit_robust <- function(f, d) {
+  ok <- function(m) !is.null(m) && all(is.finite(diag(vcov(m))))
+  m <- tryCatch(geeglm(f, family = poisson, data = d, id = run_id, corstr = "exchangeable"), error = function(e) NULL)
+  if (!ok(m)) m <- tryCatch(geeglm(f, family = poisson, data = d, id = run_id, corstr = "independence"), error = function(e) NULL)
+  if (!ok(m)) { m <- glm(f, family = poisson, data = d)
+                attr(m, "V") <- sandwich::vcovCL(m, cluster = ~ run_id) }
+  m
+}
+# for the glm fallback, pass the clustered covariance to emmeans: emmeans(m, ~ element, vcov. = attr(m, "V"))
+
+# Poisson GLM with run-clustered robust covariance 
+# # 1. Estimate the cluster-robust covariance matrix
+# robust_vcov <- vcovCL(pois_model, cluster = ~ cluster_id, data = your_data)
+# 
+# # 2. Get the model summary with cluster-robust standard errors
+# robust_summary <- coeftest(pois_model, vcov = robust_vcov)
+# print(robust_summary)
+```
+
+
+
+
+##1. Fit Poisson GEEs
+
+
+Poisson GEEs with `offset(log(K_u))`, clustered by run, with robust (sandwich) SEs. The primary specification uses an independence working correlation. Counts sum to K within a run, so categories are negatively correlated by construction and an exchangeable structure sits at or beyond its positive-definite boundary (−0.20 cell, −0.50 actor, −1.00 level). Independence with robust SEs also matches the estimator assumed in the Stage 1 Step 7 power simulation. An exchangeable version is reported as a robustness check (Step 8).
+
+Contrasts are extracted unadjusted, then BH-FDR is applied across each table as one family. A contrast is reported when q ≤ .05 and its rate ratio meets the powered target in either direction (RR ≥ 1.20 for actor contrasts, RR ≥ 1.50 for cell contrasts, symmetric on the log scale).
+
+```{r}
+# Poisson GEE - no intercept - exposure offset log K 
+# actor, actor*model, actor*intruction effects
+# prompt contrasts averages over models 
+# Sandwich SEs are default (std.err = "san.se")
+
+f_level <- y ~ 0 + actor:level + actor:level:model + actor:level:instruction_type + offset(log(K_actor))
+
+fit_level <- geeglm(f_level, 
+                    family = poisson, 
+                    data = d_lvl,
+                    id = run_id, 
+                    corstr = "independence")
+
+```
+
+##2. Model Adequacy 
+
+Across all Poisson GEE fits, dispersion diagnostics were below unity (elements: Pearson χ2/df = 0.567, deviance/df = 0.611; 
+categories: χ2/df = 0.402–0.664, deviance/df = 0.454–0.740), 
+with many run clusters (elements: n = 2,880; categories: n = 2,793–2,880; 
+WHY runs with K_elem = 0 excluded from the corresponding element-specific category models); 
+
+we therefore report run-clustered robust (sandwich) SEs and fit Poisson GEEs with an exchangeable working correlation by default;
+
+when the GEE fit failed or produced invalid covariance estimates: 
+* we refit the model using an independence working correlation; 
+* if that specification also failed, we used a Poisson GLM with run-clustered robust covariance as a fallback.
+
+Dispersion diagnostics (actor: Pearson χ2/df - deviance/df)
+run clusters (actor: )
+
+```{r}
+# Pearson chi2 / residual degrees of freedom 
+sum(residuals(fit_level, 
+              type = "pearson")^2) / df.residual(fit_level)  
+
+# deviance/df
+glm_level <- glm(f_level, 
+                 family = poisson, 
+                 data = data_levels)
+
+# gives a dispersion parameter estimate to check if the independence working correlation assumption is valid
+deviance(glm_level) / df.residual(glm_level)                              
+summary(fit_level)$corr
+
+# run clusters per actor
+data_levels |> 
+  distinct(run_id, actor) |> 
+  count(actor)
+
+# robustness check with corr
+fit_level_ex <- update(fit_level,
+                     corstr = "exchangeable")
+summary(fit_level_ex)$corr
+
+```
+
+##3. Build Reference Grid 
+averages over model and instruction type. offset = 0 returns rates per unit of exposure. The ratios are the same either way, because the offset cancels in contrasts.
+
+
+```{r}
+emm_level <- emmeans(fit_level, ~ level|actor,
+                     offset = 0,
+                     data = data_levels)
+```
+
+
+##4. Wald contrasts vs. Upstream (rate ratios)
+Inference uses Wald χ2(1) tests on log–rate contrasts with robust covariance, and 95% CIs are exp(ˆθ ± 1.96 SE). Tables indicate the number of run clusters. We report pairwise differences only when BH–FDR q < .05 and |∆%| ≥ 10.
+
+(i)	actor rate ratios (RRs) relative to upstream, which we use as an arbitrary reference category, and 
+(ii)	within–actor pairwise RRs for model and for instruction type.
+
+trt.vs.ctrl: generate contrasts for comparing one level (or the average over specified levels) with each of the other levels.
+
+
+```{r}
+# Within-actor evel preference (4.3.1)
+table_5 <- contrast(emm_level, 
+                    # see note above
+                    method = "trt.vs.ctrl", 
+                    ref = 1, 
+                    adjust = "none") |>
+  # one row per actor - ratio = low cog / high cog
+  summary(infer = TRUE, 
+          type = "response")
+# columns: ratio (= RR), asymp.LCL, asymp.UCL, z.ratio (Wald chi2 = z.ratio^2), p.value
+
+```
+
+### Actor * Level interaction 
+The joint test reports an F with df2 = Inf. Multiply F by df1 to get the Wald χ².
+
+The interaction methods follow the order of factors in the spec. level comes first, so trt.vs.ctrl gives low vs. high, and pairwise then compares that ratio across actors.
+trt.vs.ctrl: generate contrasts for comparing one level (or the average over specified levels) with each of the other levels.
+pairwise: generate contrasts for all pairwise comparisons among estimated marginal means at the levels in levs.
+
+```{r}
+emm_l_a <- emmeans(fit_level, 
+                   ~ level * actor, 
+                   offset = 0, 
+                   data = data_levels)
+
+cont_l_a <- contrast(emm_l_a, 
+                     interaction = c("trt.vs.ctrl", "pairwise"), 
+                     adjust = "none")
+
+# omnibus Wald test: does the split differ across actors? (df1 = 2)
+test(cont_l_a, joint = TRUE)
+
+table_5_int <- summary(ic_actor,
+                       infer = TRUE,
+                       type = "response") |>
+  as_tibble() |>
+  mutate(q = p.adjust(p.value, 
+                      method = "BH"))
+# ratio = (low/high in actor A) / (low/high in actor B), for the 3 actor pairs
+```
+
+
+
+### Cross-Model stability in actor Preferences 
+```{r}
+table_3_l <- emmeans(fit_level, ~ model | level, 
+                   offset = 0, 
+                   data = data_levels) |>
+  pairs(adjust = "none") |>
+  summary(infer = TRUE, 
+          type = "response") |>
+  as_tibble() |>
+  mutate(q = p.adjust(p.value, 
+                      method = "BH"), # Step 5: BH
+         delta = (ratio - 1) * 100) |> # Delta% = (RR - 1) x 100
+  filter(q < .05, abs(delta) >= 10) |> # Step 6: reporting filter
+  group_by(level) |> 
+  slice_max(abs(delta), n = 3)
+```
+
+### Instruction stability in actor preference
+```{r}
+table_4_l <- emmeans(fit_level, ~ instruction_type | level, 
+                   offset = 0, 
+                   data = data_levels) |>
+  pairs(adjust = "none") |>
+  summary(infer = TRUE, 
+          type = "response") |>
+  as_tibble() |>
+  mutate(q = p.adjust(p.value, 
+                      method = "BH"), # Step 5: BH
+         delta = (ratio - 1) * 100) |> # Delta% = (RR - 1) x 100
+  filter(q < .05, abs(delta) >= 10) |> # Step 6: reporting filter
+  group_by(level) |> 
+  slice_max(abs(delta), n = 3)
+```
+
+

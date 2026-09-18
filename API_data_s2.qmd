@@ -1,0 +1,1144 @@
+---
+title: "API_data_s2"
+format: html
+---
+
+#API Set up - Stage 2
+
+##Packages
+
+```{r}
+library(dplyr)
+library(tidyr)
+library(purrr)
+library(stringr)
+library(tibble)
+library(readr)
+library(readxl)
+library(glue)
+library(httr2)
+library(jsonlite)
+library(withr)
+
+```
+
+##Data - load/save
+Save what is sent and all responses - same folders as Stage 1 but different file names. 
+
+```{r}
+paths <- list(
+  response = "response",
+  sent = "sent",
+  
+# Save list order of each run
+  presented = file.path("sent", "list_order_s2.csv"),
+  
+# Main run files: 
+# metadata: one row per run including model, instruction, condition, seed, status and tokens
+  runs = file.path("response", "metadata_s2.csv"),
+# raw JSON responses
+  raw = file.path("response", "raw_responses_s2.rds"),
+# tidied responses
+  parsed = file.path("response", "selections_long_s2.csv"), 
+  
+# Pilot files:
+  runs_pilot = file.path("response",
+                         "metadata_pilot_s2.csv"),
+  raw_pilot = file.path("response", 
+                        "raw_responses_pilot_s2.rds"),
+  parsed_pilot = file.path("response",
+                           "selections_long_pilot_s2.csv"), 
+
+# Retry files: 
+  runs_retry = file.path("response",
+                         "metadata_retry_s2.csv"),
+  raw_retry = file.path("response",
+                         "raw_responses_retry_s2.rds"))
+
+# Create folders
+#################################################
+# Does not need to be run if API_Data_s1 has already run but will not overwrite anything if it already exists. 
+dir.create(paths$response,
+           showWarnings = FALSE,
+           recursive = TRUE)
+dir.create(paths$sent,
+           showWarnings = FALSE,
+           recursive = TRUE)
+
+
+# Load activities list
+activities <- read_csv("data/activity_main.csv", 
+                       show_col_types = FALSE)
+activities
+
+```
+
+##Settings
+
+```{r}
+# set k_fixed
+k_fixed <- 15
+
+# Max number of tokens models can generate in their response (to limit free condition from running long)
+# Note: higher = more costs but run will fail if limit is met 
+# sonnet5 - adaptive thinking requires more tokens 
+max_tokens <- 20000
+
+# max number of API request attempts if failed
+# Prevents infinite loops 
+max_tries <- 5
+
+# pause for 1 second before / after next request 
+req_pause <- 1.0
+
+# Global seed for reproducibility
+# seed set above S1 to ensure seeds do not overlap
+m_seed_s2 <- 10002026
+set.seed(m_seed_s2)
+
+# Run for cleaning text when matching 
+normalise_text <- function(x) {
+  x |> 
+    str_replace_all("[^A-Za-z0-9 ]", " ") |> 
+    str_to_lower() |> 
+    str_squish()
+}
+# TO REPLACE NORM AND KEY 
+# normalise and clean text string in case of minor changes 
+# removes random spaces, makes everything lowercase
+norm <- \(x) str_squish(tolower(
+  # remove puntuation, new lines etc. 
+  str_replace_all(x,"[^A-Za-z0-9 ]", " ")))
+```
+
+#Content to send 
+
+Includes the construction and formatting for everything that is sent to the models.
+
+## System prompts
+
+Three instruction types to address response sensitivity caused by wording of the prompt.
+These are the roles sent to each model (Anthropic - `system`; OpenAI - `instructions`; Google - `system_instructions`)
+
+```{r}
+instruction_types <- tribble(
+  ~instruction_type, ~system_prompt,
+
+  "basic",
+  "You are an Australian secondary educator. Your task is to select activities when requested. Your goal is to select activities that fulfill the given requirements.",
+
+  "quality",
+  "You are a highly skilled Australian secondary educator known for technical excellence and flawless execution of pedagogical fundamentals. You design activities with precise task sequencing, well-structured lessons, clear curriculum alignment and carefully planned differentiation. Your goal is to design activities of the highest quality through careful refinement and technical mastery.",
+
+  "creativity",
+  "You are an innovative Australian secondary educator celebrated for creating completely original and unexpected learning activities. You excel at breaking conventional lesson structures and exploring new pedagogical possibilities. Your strength lies in developing unusual task sequences, unconventional lesson structures, or experimental modes of student participation that students would not expect. Your goal is to design activities that are unlike anything that has been taught before, pushing the boundaries of what learning can be through creative experimentation."
+)
+
+instruction_types
+```
+
+## User prompt
+
+Base condition. Prompt 2 (k = 15)
+This is the experiment condition sent to the models (Anthropic - `messages`; OpenAI - `input`; Google - `contents`)
+
+```{r}
+prompt_2 <- r"(As you plan to teach a unit, identify the specific activities that would be most useful for a single 10-week unit on Earth systems and climate change, and explain your reasoning for why each activity would help support better student learning.
+Task:
+-	You will be given a list of 90 possible learning activities.
+-	Read through all 90 activities carefully.
+-	Select exactly 15 activities you consider most useful for teaching a unit on Earth systems and climate change.
+-	For each selected activity, explain your reason for choosing it.
+-	There is a limit of one sentence for each of your explanations. There are no restrictions on the style of your explanations. 
+-	You do not need to mention activities you are not selecting unless you wish to explain why you excluded them.
+-	List your selections using the specified output format for easy parsing.
+
+Output Format:
+-	Select exactly 15 activities. The order in which you list them does not matter.
+-	For each, write only the selected activity as a JSON object, then the activity ID in the "activity_id" field and your reason in the "reason" field.
+-	Each activity, activity ID and its reason must appear as a separate element in a single JSON array containing all elements.
+- Respond with the JSON array only. Do not write anything before or after it. 
+
+Example Output: {example_output}
+Activities List: {activity_list})"
+
+```
+
+## Example output
+
+A worked example of the required JSON shape to include with both prompts.
+
+```{r}
+example_output <- paste0('[\n','{"activity": "Students examine safety features in cars and determine how each feature relates to the Laws of Motion.", "activity_id": "b_XF59", "reason": "<one or two sentences>"},\n',
+  '{"activity": "Students examine how elements are organised on the periodic table and determine patterns that group elements together.", "activity_id": "b_GK63", "reason": "<one or two sentences>"}\n',']')
+
+cat(example_output)
+```
+
+##Activity list 
+
+```{r}
+# Ensure no other information is sent to LLM so the model only ever sees the activity and the ID
+activities_send <- activities |> 
+  select(activity_id, activity) 
+```
+
+##Render activity list
+
+The order of the activity list is shuffled for every run to address selection preference sensitivity caused by the order or position in which the activities are presented. When the grid is established, each run is assigned a unique `presentation_seed` (`m_seed` + run number) used for `set.seed(seed)` inside `render_list()`. This ensures that the order of each list rendered by `sample.int()` is only dependent on its distinct seed per run, making each permutation recordable prior to running the API loop and also repeatable for reattempting any failed runs. 
+
+```{r}
+
+# Function for randomising list order 
+render_list <- function(activity_shuf, seed) {
+  set.seed(seed)
+    # Shuffle the list for one run and number each row
+    activity_shuf |>
+      # whole row (so ID and activity are constant)
+      slice(sample.int(nrow(activity_shuf))) |>
+      # Position to save list order 
+      mutate(position = row_number()) |>
+      # only rows available but in case of future changes
+      select(position, activity_id, activity)
+}
+
+# function - shuffled tibble into plain text block to paste into the prompt 
+format_list_for_prompt <- function(send) {
+  # one line for ID and activity then new line. 
+  paste("ID:",
+         send$activity_id, 
+         "| Activity:",
+         send$activity,
+         collapse = "\n")}
+
+# Check sample
+send_demo <- render_list(activities_send, 
+                         seed = m_seed_s2)
+# Shorten to 500 characters
+cat(str_trunc(format_list_for_prompt(send_demo), 500))
+
+# Check activity shuffle never drops or changes an activity and that the random order is working
+# seed = m_seed + row number (e.g., run 1 seed is 10002027)
+order_1 <- render_list(activities_send, seed = 10002027)
+order_1a <- render_list(activities_send, seed = 10002027)
+order_2 <- render_list(activities_send, seed = 10002028) 
+# (should all be TRUE)
+    # different seed = different order
+cat(!identical(order_1, order_2),
+    # same seed = same order 
+    identical(order_1, order_1a),
+    # order_1 IDs same as original IDs (regardless of order)
+    setequal(order_1$activity_id,
+             activities_send$activity_id))
+
+```
+
+## Conditions
+
+```{r}
+# add condition label and budget to the prompt templates
+conditions <- tribble(
+  ~condition, ~k, ~template,
+  "k_fixed", k_fixed, prompt_2)
+
+```
+
+##User prompt 
+User prompt includes the condition instructions, activity list and example output. 
+
+```{r}
+
+build_user_prompt <- function(condition_row, 
+                              activity_list) {
+  # fills the prompt templates placeholders 
+  glue(condition_row$template, 
+       # preserves the prompts structure 
+       .trim = FALSE, 
+# sets the environment to inside the function call for {activity_list} 
+# moves to global environment for {example_output}
+       .envir = environment()) |> 
+    # character vector
+    as.character()}
+
+```
+
+
+##Check a built prompt before sending.
+
+```{r}
+# check that one fully rendered prompt 
+demo_prompt <- build_user_prompt(
+  condition_row = conditions[conditions$condition == "k_fixed", ],
+  activity_list = format_list_for_prompt(send_demo))
+
+cat(demo_prompt)
+```
+
+
+# Model APIs
+
+**Open AI** 
+* GPT-5.6 Terra
+Release Date: 9th July, 2026.
+Knowledge and training data cutoff: 16th February, 2026.
+https://developers.openai.com/api/docs/models/gpt-5.6-terra 
+https://developers.openai.com/api/reference/resources/responses 
+
+**Anthropic** 
+* Sonnet 5
+Release Date: 30th June, 2026. 
+Knowledge and training data cutoff: January 2026. 
+https://platform.claude.com/docs/en/models/sonnet-5/overview 
+https://platform.claude.com/docs/en/api/http/messages/create 
+
+**Gemini** 
+* Gemini 3.8 Flash
+Release Date: September, 2026.
+Knowledge and training data cutoff: March, 2026. 
+https://ai.google.dev/gemini-api/docs/models/gemini-3.8-flash 
+https://ai.google.dev/gemini-api/docs 
+
+NOTE: new models do not support top_p or temperature params
+
+## Models and Default Settings 
+
+```{r}
+# create model vars and parameters (default settings)
+models <- tribble(
+  
+# one row per model; params is a list column with provider settings
+  ~model, ~provider, ~model_id, ~params,
+
+  "gpt_terra", "openai", "gpt-5.6-terra", 
+  list(reasoning = list(effort = "medium"), store = FALSE), 
+  # reasoning default effort = medium 
+  
+  "sonnet5", "anthropic", "claude-sonnet-5",
+  list(output_config = list(effort = "high")), 
+  # adaptive reasoning default effort = high 
+  
+  "gemini3_8", "google", "gemini-3.8-flash",
+  list(thinkingConfig = list(thinkingLevel = "medium")))
+  # reasoning default effort = medium 
+
+models
+```
+
+##Endpoints
+
+```{r}
+# Set endpoints
+endpoints <- list(
+  anthropic = "https://api.anthropic.com/v1/messages",
+  openai = "https://api.openai.com/v1/responses",
+  #Google embeds model id in URL so %s placeholder is used incase models change - filled by sprintf()
+  google = "https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent")
+
+# set keys 
+api_keys <- c(
+  anthropic = "ANTHROPIC_API_KEY",
+  openai = "OPENAI_API_KEY",
+  google = "GEMINI_API_KEY")
+
+```
+
+##API Keys
+Keys live in `~/.Renviron`. Add setup to README: run ``, add the three lines and restart R.
+
+```{r}
+#| eval: false
+usethis::edit_r_environ()
+
+# Copy lines and use your key 
+# ANTHROPIC_API_KEY={your_key}
+# OPENAI_API_KEY={your_key}
+# GEMINI_API_KEY={your_key}
+```
+
+### Check keys
+
+```{r}
+# check all keys are set and valid - function incase models are added in future
+check_keys <- function(providers = unique(models$provider)) {
+  out <- tibble()
+
+  for (p in providers) {
+    out <- bind_rows(out, tibble(
+      provider = p,
+      env_var = api_keys[[p]],
+      # keys valid - missing or empty 
+      set = nzchar(Sys.getenv(api_keys[[p]], 
+                              unset = ""))))
+  }
+  out
+}
+check_keys()
+```
+
+## Function for base request 
+
+```{r}
+# similar to above - used for request to fail with message rather than running for all requests. 
+get_api_key <- function(provider) {
+  # Check if a model is added but not API key
+  if (!provider %in% names(api_keys)) stop("Unknown provider: ",
+                                           provider)
+  var <- api_keys[[provider]]
+  # Check API key is valid
+  key <- Sys.getenv(var, unset = "")
+  if (!nzchar(key)) {
+    stop(var, 
+         " is not set. Run usethis::edit_r_environ(), add the line, then restart R.")}
+  key
+}
+
+```
+
+## Building a request
+
+`request()` builds a placeholder holding the endpoint and the headers, and everything else is an add-on. These are `POST` endpoints, so the parameters go in a body via `req_body_json` instead of in the URL via `req_url_query`.
+
+`base_request` is the placeholder (endpoint plus authentication), no content included. 
+
+Anthropic: " When making API requests, you must send an anthropic-version request header. Anthropic recommends using the latest API version whenever possible. Previous versions are considered deprecated and may be unavailable for new users. `2023-06-01` " REF: https://platform.claude.com/docs/en/api/versioning 
+
+```{r}
+# set endpoints and headers 
+base_request <- function(provider, model_id) {
+  if (provider == "anthropic") {
+    request(endpoints$anthropic) |> #endpoints
+      req_headers( 
+        "x-api-key" = get_api_key("anthropic"), # Headers 
+        "anthropic-version" = "2023-06-01",
+        "content-type" = "application/json")
+
+  } else if (provider == "openai") {
+    request(endpoints$openai) |>
+      req_headers(
+        "Authorization" = paste("Bearer",
+                                get_api_key("openai")),
+        "content-type" = "application/json")
+
+  } else if (provider == "google") {
+    request(sprintf(endpoints$google, model_id)) |>
+      req_headers(
+        "x-goog-api-key" = get_api_key("google"),
+        "content-type" = "application/json")
+
+  } else {
+    stop("Unknown provider: ", provider) 
+  }
+}
+
+```
+
+
+
+## Build Request Body 
+
+Provider-specific part. 
+System prompt is `system` / `instructions` / `system_instruction`, and the token limit is `max_tokens` / `max_output_tokens` / `maxOutputTokens`:
+
+```{r}
+# Messages normalised
+build_req_body <- function(provider, model_id,
+                          system_prompt, # role 
+                          user_prompt, # experiment conditions 
+                          params, # effort/reasoning 
+                          n_tokens) {
+
+  if (provider == "anthropic") {
+    c(list(
+        model = model_id,
+        max_tokens = n_tokens,
+        system = system_prompt,
+        messages = list(list(role = "user", 
+                             content = user_prompt))),
+      params)
+
+  } else if (provider == "openai") {
+    c(list(
+        model = model_id,
+        instructions = system_prompt,
+        input = user_prompt,
+        max_output_tokens = n_tokens),
+      params)
+
+  # Create request body as a separate list
+  } else if (provider == "google") {
+          # System instructions - Role
+    list(system_instruction = list(
+      parts = list(list(text = system_prompt))),
+          # user prompt - experiment conditions 
+      contents = list(
+        list(
+          role = "user",
+          parts = list(
+            list(text = user_prompt)))),
+      # Generation config - top_p etc no longer accepted 
+      generationConfig = c(list(
+        maxOutputTokens = n_tokens), 
+        params)) # params sit inside generationConfig 
+  } else {
+    stop("Unknown provider: ", provider)
+  }
+}
+
+```
+
+
+
+## Final Request
+Put the two together and you have a request ready to perform:
+
+```{r}
+build_request <- function(provider, 
+                          model_id, 
+                          system_prompt, 
+                          user_prompt,
+                          params = list(), 
+                          n_tokens = max_tokens,
+                          n_tries = max_tries) {
+
+  body <- build_req_body(provider, 
+                     model_id, 
+                     system_prompt,
+                     user_prompt, 
+                     params, 
+                     n_tokens)
+
+  base_request(provider, model_id) |>
+    req_body_json(body, auto_unbox = TRUE) |>
+    req_timeout(600) |>
+    req_error(body = resp_body_string) |> 
+    req_retry(max_tries = n_tries)
+}
+
+```
+
+
+# Run Grid 
+```{r}
+set.seed(m_seed_s2)
+
+n_reps <- 160
+
+grid_run <- expand_grid(
+  model = models$model,
+  instruction_type = instruction_types$instruction_type,
+  condition = conditions$condition,
+  replicate = seq_len(n_reps)) |>
+  left_join(conditions, by = "condition") |>
+  left_join(instruction_types, by = "instruction_type") |>
+  left_join(models, by = "model") |>
+  mutate(
+    run_id = sprintf("run_%03d", row_number()),
+    # pre-determine seed to API loop smaller 
+    # m_seed_s2 (10002026) plus row number for different seed when ordering list
+    presentation_seed = m_seed_s2 + row_number())
+
+# Stop if NA prompts from failed join 
+stopifnot(nrow(grid_run) == n_reps * nrow(conditions) *
+            nrow(instruction_types) * nrow(models),
+          !any(is.na(grid_run$system_prompt)),
+          !any(is.na(grid_run$template)),
+          !any(duplicated(grid_run$run_id)))
+
+```
+
+## Shuffled activity list 
+
+Save the order of the activity list sent with each run. Only need to run this chunk once to save file. 
+```{r}
+#| eval: false 
+set.seed(m_seed_s2)
+# Save presentation order of activities across all runs based on presentation_seed
+presented_orders_s2 <- grid_run |>
+  select(run_id, presentation_seed) |>
+  pmap_dfr(function(run_id, presentation_seed) {
+    render_list(activities_send, 
+                seed = presentation_seed) |>
+      mutate(run_id = run_id, 
+             presentation_seed = presentation_seed, 
+             .before = 1)
+  })
+
+# Check 
+cat(str_trunc(format_list_for_prompt(order_1), 600))
+
+```
+
+### Save shuffled activity list 
+
+Save once - not used again, just if further analysis is ever done. 
+```{r}
+#| eval: false 
+write_csv(presented_orders, paths$presented)
+```
+
+
+# Responses 
+## Extract text and token metadata across providers 
+
+Parse response to handle each providers JSON response  to extract raw text (inc. input and output token counts). 
+
+```{r}
+parse_api_response <- function(response, provider) {
+  # check response is json
+  body <- resp_body_json(response)
+  # pull text from json blocks, drop any NULLs with no text field
+  # paste(collapse = "") joins everything into one string and 
+  pull_text <- function(x) paste(map_chr(x, "text", 
+                                         .default = ""), 
+                            collapse = "")
+  
+  json_blocks <- function(blocks, type){
+    blocks[map_chr(blocks, "type",
+                   .default = NA_character_) %in% type]
+  }
+  
+  # Anthropic content is a thinking blovk with no text field - select by type not position 
+  out <- if (provider == "anthropic") {
+    list(text = pull_text(keep(body$content, 
+                               \(b) identical(b$type, 
+                                              "text"))),
+         stop_reason = body$stop_reason,
+         in_tok = body$usage$input_tokens,
+         out_tok = body$usage$output_tokens)
+  
+  # OpneAI content has two nested levels - select message then content, flatten  
+  } else if (provider == "openai") {
+    blocks <- body$output |> 
+      keep(\(b) identical(b$type, "message")) |> 
+      map("content") |> list_flatten()
+    list(text = pull_text(keep(blocks, 
+                               \(b) identical(b$type,
+                                              "output_text"))),
+         stop_reason = body$incomplete_details$reason %||% body$status,
+    in_tok = body$usage$input_tokens,
+    out_tok = body$usage$output_tokens)
+    
+  } else if (provider == "google") {
+    list(text = pull_text(body$candidates[[1]]$content$parts %||% list()),
+         stop_reason = body$candidates[[1]]$finishReason,
+         in_tok = body$usageMetadata$promptTokenCount,
+         out_tok = body$usageMetadata$candidatesTokenCount)
+    
+  } else stop("Unknown provider: ", provider)
+  
+    stopifnot(all(c("text", 
+                    "stop_reason", 
+                    "in_tok", 
+                    "out_tok") %in% names(out)))
+  out
+}
+```
+
+
+## Parse function 
+
+```{r}
+
+clean_and_parse_json <- function(text) {
+  if (is.null(text) || is.na(text) || !nzchar(text)) return(tibble())
+  s <- str_trim(str_remove_all(text, "```[A-Za-z]*"))
+ 
+  # first path for when the whole response is a valid array
+  if (isTRUE(validate(s))) {
+    parsed <- fromJSON(s, 
+                       simplifyDataFrame = TRUE)
+    if (is.data.frame(parsed) && nrow(parsed)) return(as_tibble(parsed))
+  }
+ 
+  # second path for when it is not a valid array (e.g., contains preamble)
+  objs <- str_extract_all(s, r"(\{(?:[^{}"]|"(?:[^"\\]|\\.)*")*\})")[[1]]
+  if (!length(objs)) return(tibble())
+  map(objs, \(o) tryCatch(as_tibble(fromJSON(o)), 
+                          error = \(e) NULL)) |>
+    compact() |> 
+    bind_rows()
+}
+
+# Match parsed response to original activity list 
+match_to_activities <- function(picks, presented) {
+  if (!nrow(picks) || !"activity_id" %in% names(picks)) return(tibble())
+  # fill keys the model may have omitted entirely
+  for (col in c("activity", "reason")) {
+    if (!col %in% names(picks)) picks[[col]] <- NA_character_
+  }
+ 
+  key <- \(x) str_squish(tolower(str_replace_all(x,
+                                                 "[^A-Za-z0-9 ]", " ")))
+  lookup <- set_names(presented$activity_id, 
+                      key(presented$activity))
+ 
+  picks |>
+    # Keep only selected columns
+    transmute(activity_id_returned = as.character(activity_id),
+              activity_returned = as.character(activity),
+              reason = as.character(reason),
+              activity_id = coalesce(
+                if_else(activity_id_returned %in% presented$activity_id,
+                        activity_id_returned,
+                        NA_character_),
+                unname(lookup[key(activity_returned)])),
+              # T/F for if the activity ID exists
+              matched = !is.na(activity_id)) |>
+    left_join(presented, by = "activity_id") |>
+    left_join(select(activities, activity_id, 
+                     topic, actor, level),
+              by = "activity_id")
+}
+
+```
+
+
+## Response paths for runs
+```{r}
+out_paths <- function(stage = c("pilot", "main", "retry")){
+    stage <- match.arg(stage)
+    save_path <- if (stage == "main") "" else paste0("_", stage)
+    list(runs = paths[[paste0("runs", save_path)]],
+         raw = paths[[paste0("raw", save_path)]])
+  }
+```
+
+
+## Extraction Loop (save raw responses)
+
+```{r}
+set.seed(m_seed_s2)
+
+# change replace_data to TRUE if new data is required (files will be overwritten)
+execute_runs <- function(grid, stage, replace_data = FALSE) {
+  stage_run <- out_paths(stage)
+  # half written file name 
+  check_pts <- paste0(stage_run$raw, ".unfin")
+  
+# Check replace_data = FALSE and if finished file exists
+  if (!replace_data && file.exists(stage_run$raw)) {
+    # read finished file
+    saved <- readRDS(stage_run$raw)
+    # extract run_ids from the finished file
+# should be the complete list (pilot n = 3; main n = 1440 and failed n if any) as the following code saves to '.unfin' until grid is complete.
+    saved_ids <- map_chr(saved, "run_id", 
+                         .default = NA_character_)
+    # check all run_id's in the grid is also in the loaded file
+    if (all(grid$run_id %in% saved_ids)) {
+      # if condition is met - display message
+      message("All ", nrow(grid), 
+              " runs already saved in ",
+              stage_run$raw, 
+              " (loading data, no API calls made).")
+      # then load completed file and stop
+      return(list(metadata = read_csv(stage_run$runs, 
+                                      show_col_types = FALSE),
+                  raw = saved))
+    }
+  }
+  
+# If completed file does not exist - continue w/ API calls
+  # will also run if file does not contain all run_ids (should not happen with the .unfin unless grid is updated to > n) or if replace_data is TRUE. 
+  results <- if (file.exists(check_pts)) readRDS(check_pts) 
+                else list()
+  ids_done <- map_chr(results, 
+                      "run_id", 
+                      .default = NA_character_)
+  ids_to_do <- grid |> 
+    filter(!run_id %in% ids_done)
+  
+  # check how many left 
+  message(length(results), " completed, ", 
+          nrow(ids_to_do), " remaining")
+  
+  for (i in seq_len(nrow(ids_to_do))) {
+    row <- ids_to_do[i, ]
+    
+    # Prepare shuffled list and user prompt for this run
+    shuffled_list <- render_list(activities_send, 
+                                 seed = row$presentation_seed)
+    activity_list <- format_list_for_prompt(shuffled_list)
+    user_prompt <- build_user_prompt(row, activity_list)
+    
+    res <- tryCatch({
+      
+    # Build and execute request
+    req <- build_request(
+      provider = row$provider,
+      model_id = row$model_id,
+      system_prompt = row$system_prompt,
+      user_prompt = user_prompt,
+      params = row$params[[1]])
+      
+      resp <- req_perform(req)
+      parsed_resp <- parse_api_response(resp, row$provider)
+      list(run_id = row$run_id, 
+           status = "success", 
+           raw_json = resp_body_string(resp), 
+           text = parsed_resp$text,
+           ok = nzchar(parsed_resp$text), 
+           stop_reason = parsed_resp$stop_reason %||% NA_character_,
+           input_tokens = parsed_resp$in_tok %||% NA_integer_,
+           output_tokens = parsed_resp$out_tok %||% NA_integer_,
+           error = NA_character_)
+    }, error = function(e) { # Identify why if there is an error
+      list(run_id = row$run_id, 
+           status = "failed",
+           raw_json = NA_character_, 
+           text = NA_character_,
+           ok = FALSE,
+           stop_reason = NA_character_, 
+           input_tokens = NA_integer_,
+           output_tokens = NA_integer_, 
+           error = conditionMessage(e))
+    })
+    # save res to next line in results (check_pts - .unfin)
+    results[[length(results) + 1L]] <- res
+    # save every call so no data is lost 
+    saveRDS(results, check_pts)
+    
+    # track progress and if there are any issues
+    message(row$run_id, " | ", 
+            row$model, " : ", 
+            res$status, " | ",
+            coalesce(res$stop_reason %||% NA_character_,
+                     ""))
+    
+    Sys.sleep(req_pause)
+  }
+  # Save metadata 
+  metadata <- grid |> 
+    select(-params, -template, -system_prompt) |> 
+    left_join(select(bind_rows(results), 
+                     -raw_json, -text), 
+              by = "run_id")
+  
+  write_csv(metadata, stage_run$runs)
+  saveRDS(results, stage_run$raw)
+  if(file.exists(check_pts)) file.remove(check_pts)
+  list(metadata = metadata, 
+       raw = results)
+}
+
+```
+
+# Run 1. Pilot Run 
+```{r}
+#| eval: false
+
+set.seed(m_seed_s2)
+# smaller trial than S1 - just to the three models
+pilot_grid <- grid_run |> 
+  slice_sample(n = 1,
+               by = c(model))
+
+pilot_run <- execute_runs(pilot_grid, 
+                          stage = "pilot")
+```
+
+### Check Results 
+
+
+```{r}
+# load saved files (for if the run was not executed)
+pilot_raw  <- readRDS(paths$raw_pilot)
+pilot_meta <- read_csv(paths$runs_pilot, 
+                       show_col_types = FALSE)
+
+# Check that all runs are present 
+nrow(pilot_meta) # should = 3
+# Check that runs were successful 
+pilot_meta |> count(status, ok) # success/TRUE
+# Check that runs were successful (STOP, completed or end_turn) or if they stopped (e.g., max_tokens or  incomplete) 
+pilot_meta |> count(stop_reason) 
+
+
+# check clean_and_parse_json function 
+pilot_check <- bind_rows(pilot_raw) |>
+  select(run_id, status, ok, 
+         stop_reason, input_tokens, 
+         output_tokens, text) |>
+  left_join(select(pilot_meta, run_id, 
+                   model, instruction_type, 
+                   condition, k),
+            by = "run_id") |>
+  mutate(
+    # check that response begins with [ (no preamble)
+    starts_json = str_starts(str_trim(text),
+                             fixed("[")),
+    # check that response ends with ] (no commentary or truncated mid response)
+    ends_json = str_ends(str_trim(text), fixed("]")),
+    # check if response is a valid JSON 
+    valid_clean = map_lgl(text, \(t) isTRUE(validate(str_trim(
+      # remove markdown fences 
+      str_remove_all(t, "```[A-Za-z]*"))))),
+    # check k using "activity_id" 
+    n_id_keys = str_count(text, fixed('"activity_id"')),
+    # check how many rows the parse function extracted
+    n_parsed = map_int(text, \(t) nrow(clean_and_parse_json(t))))
+ 
+# Check if the clean_and_parse_json function had to extract JSON responses per-object due to raw parse fail.
+pilot_check |>
+  count(model, starts_json, 
+        ends_json, valid_clean,
+        recovered = n_parsed > 0)
+ 
+# Any response where objects were lost between the text and the parse
+pilot_check |>
+  filter(n_parsed != n_id_keys) |>
+  select(run_id, model, condition, 
+         n_id_keys, n_parsed, stop_reason)
+ 
+# Check if token n set is okay
+# Does not include all tokens for gemini - but gemini maxes at 36000 and is currently set to 20000 
+pilot_check |>
+  summarise(min_out = min(output_tokens), 
+            med_out = median(output_tokens),
+            max_out = max(output_tokens), 
+            .by = c(model, condition)) |>
+  mutate(tokens = max_tokens - max_out) |>
+  arrange(tokens)
+
+```
+
+# Run 2. Main Run 
+
+```{r}
+#| eval: false
+set.seed(m_seed_s2)
+# Run the execution
+main_run <- execute_runs(grid_run, stage = "main")
+```
+
+## Selections 
+
+Save selections_long once after `main_run` or continue to **Load**
+Create and save data frame with one row for each activity returned (~ 15 rows per run_id).
+
+```{r}
+#| eval: false
+selections_long <- bind_rows(main_run$raw) |>
+  # select runs that were successful w/ response
+  filter(status == "success", ok) |>
+  select(run_id, text) |>
+  left_join(main_run$metadata, by = "run_id") |>
+  mutate(picks = map2(text, presentation_seed,
+                      \(t, s) match_to_activities(
+                        clean_and_parse_json(t),
+                        render_list(activities_send, s)))) |>
+  select(-text) |>
+  unnest(picks, 
+         keep_empty = TRUE)
+
+write_csv(selections_long, 
+          paths$parsed)
+```
+
+
+## Load 
+
+Load data if the above code has not been run
+
+```{r}
+# Load data 
+main_raw <- readRDS(paths$raw)
+main_meta <- read_csv(paths$runs,
+                       show_col_types = FALSE)
+selections_long <- read_csv(paths$parsed,
+                       show_col_types = FALSE)
+```
+
+
+##Check Results
+
+### Functions 
+
+```{r}
+
+# 1 - Check that all runs are present 
+nrow(main_meta) # should = 1440
+# 2 - Check that runs were successful 
+main_meta |> count(status, ok) # success/TRUE
+# 3 - Check that runs were successful (STOP, completed or end_turn) or if they stopped (e.g., max_tokens or  incomplete) 
+main_meta |> count(stop_reason)  
+# 4 - check that all run_ids are present
+n_distinct(selections_long$run_id) # 1440
+
+# 5 - check clean_and_parse_json function 
+main_check <- bind_rows(main_raw) |>
+  select(run_id, status, ok, 
+         stop_reason, input_tokens, 
+         output_tokens, text) |>
+  left_join(select(main_meta, run_id, 
+                   model, instruction_type, 
+                   condition, k),
+            by = "run_id") |>
+  mutate(
+    # check that response begins with [ (no preamble)
+    starts_json = str_starts(str_trim(text), fixed("[")),
+    # check that response ends with ] (no commentary or truncated mid response)
+    ends_json = str_ends(str_trim(text), fixed("]")),
+    # check if response is a valid JSON 
+    valid_clean = map_lgl(text, \(t) isTRUE(validate(str_trim(
+      # remove markdown fences 
+      str_remove_all(t, "```[A-Za-z]*"))))),
+    # check k using "activity_id" 
+    n_id_keys = str_count(text, fixed('"activity_id"')),
+    # check how many rows the parse function extracted
+    n_parsed = map_int(text, \(t) nrow(clean_and_parse_json(t))))
+
+# 6 - Check if the clean_and_parse_json function had to extract JSON responses per-object due to invalid JSON document.
+main_check |>
+  count(model, starts_json,
+        ends_json, valid_clean,
+        recovered = n_parsed > 0)
+
+# 7 - Check if number of sentences extracted by the parse function does not match k ()
+main_check |>
+  filter(n_parsed != n_id_keys) |>
+  select(run_id, model, 
+         condition, n_id_keys, 
+         n_parsed, stop_reason)
+
+# 8 - Check th
+
+```
+
+### Data Summary  
+
+```{r}
+# 1 - Main summary table 
+main_summary <- selections_long |>
+  summarise(
+    # check no NAs in returned IDs
+    n_returned = sum(!is.na(activity_id_returned)),
+    # check all IDs were matched in the selections_long df
+    n_matched = sum(matched, na.rm = TRUE),
+    n_unmatched = sum(!matched, na.rm = TRUE),
+    # check if model sent back duplicate IDs in one run
+    n_duplicated = sum(duplicated(
+      na.omit(activity_id))),
+    .by = c(run_id, model, 
+            instruction_type, 
+            condition, k)) |>
+  # check if all fixed_k runs returned 15 
+  mutate(k_ok = is.na(k) | n_returned == k,
+  # check if a run returned < k = 1
+         nonzero = n_returned > 0) |>
+  arrange(model, condition)
+
+# 2 - Check all runs returned 15 
+main_summary |> filter(!k_ok)
+
+# 3 - Check if any k = 0
+main_summary |> filter(!nonzero)
+
+# 4 - Check for number of unmatched IDs 
+main_summary |> filter(n_unmatched >= 1)
+
+# 4.1 - only run if unmatched n > 0 
+#     - Check the IDs returned not in the library
+# selections_long |>
+#   filter(!matched) |>
+#   select(run_id, model, 
+#          activity_id_returned, 
+#          activity_returned)
+
+# 5 - check for number of duplicated selections
+main_summary |> filter(n_duplicated > 0)
+
+# 5.1 - only run if n_duplicated n > 0
+# duplicated_sel <- main_summary |>
+#   filter(n_duplicated > 0) |>
+#   pull(run_id)
+# # Duplicated rows - original and returned IDs and activities
+# selections_long |>
+#   filter(run_id %in% duplicated_sel) |>
+#   filter(activity_id %in% activity_id[duplicated(activity_id)],
+#          .by = run_id) |>
+#   select(run_id, activity_id_returned,
+#          activity_id, activity_returned,
+#          activity, reason, model)
+
+```
+
+### Response vs Original pairs
+
+```{r}
+# 1 - check that IDs and activity sentences match check activity sentences and IDs from model match original list
+mismatches <- selections_long |>
+  # agrees = TRUE when the activity is the same as the one the ID matched to
+  mutate(agrees = norm(
+    activity_returned) == norm(activity)) |>
+  count(model, agrees)
+
+mismatches
+
+# 2 - If FALSE - check the activities that do not match original list 
+selections_long |>
+  # filter returned activities not matched to original activity 
+  filter(norm(activity_returned) != norm(activity)) |>
+  select(run_id, model, 
+         activity_id, 
+         activity_returned, 
+         activity) |> 
+ # count the number of times exact same mismatches occur 
+         count(activity_id, 
+                        activity_returned, 
+                        activity,
+               name = "n_runs", sort = TRUE) |> 
+  # print mismatched pairs and n for readability
+  with(paste(activity_id, "(", n_runs, "runs)\n",
+            "model:", activity_returned, "\n",
+            "orig.:", activity, "\n\n")) |> 
+  cat()
+
+# 3 - Check whether any of the mismatched pairs match a different activity ID 
+selections_long |>
+  # create column that prints the activity_ID for the original activity
+  mutate(text_match_id = activity_id[
+    # match finds the activity that matches to the activity returned
+    match(norm(activity_returned), 
+          norm(activity))]) |>
+  select(run_id, activity_id, 
+         text_match_id, model,
+         reason) |> 
+  # remove activity ids that match 
+  filter(activity_id != text_match_id)
+
+```
+
+
+# Run 3. Check for failed runs 
+Should not be any present without it having been flagged above, but just to check.
+
+```{r}
+
+retry_ids <- main_meta |>
+  filter(!coalesce(ok, FALSE) | 
+          coalesce(status, "missing") != "success" |
+          coalesce(stop_reason, "") %in% c("max_tokens", 
+                                           "MAX_TOKENS", 
+                              "max_output_tokens", 
+                              "incomplete")) |>
+  pull(run_id)
+
+```
+
+## Retry failed runs if any
+
+Would need to join to main data and re-save. 
+
+```{r}
+#| eval: false 
+
+set.seed(m_seed_s2)
+
+retry_grid <- grid_run |> 
+  filter(run_id %in% retry_ids)
+
+retry_run <- execute_runs(retry_grid, stage = "retry")
+
+```
+
+

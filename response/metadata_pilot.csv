@@ -1,0 +1,352 @@
+model,instruction_type,condition,replicate,budget,k,template,system_prompt,provider,model_id,role,run_id,presentation_seed,status,ok,stop_reason,input_tokens,output_tokens,error
+gpt_terra,basic,k_free,29,free,NA,"As you plan to teach a unit, identify the specific activities that would be most useful for a single 10-week unit on Earth systems and climate change, and explain your reasoning for why each activity would help support better student learning.  
+
+Task:
+-	You will be given a list of 90 possible learning activities.
+-	Read through all 90 activities carefully.
+-	Select the activities you consider most useful for teaching a unit on Earth systems and climate change.
+-	You may select as few or as many activities as you believe are appropriate. There is no minimum or maximum.
+-	For each selected activity, explain your reason for choosing it.
+-	There is a limit of one or two sentences for each of your explanations. There are no restrictions on the style of your explanations. 
+-	You do not need to mention activities you are not selecting unless you wish to explain why you excluded them.
+-	List your selections using the specified output format for easy parsing.
+
+Output Format:
+-	You may select as few or as many activities as you wish. The order in which you list them does not matter.
+-	For each, write only the selected activity as a JSON object, then the activity ID in the ""activity_id"" field and your reason in the ""reason"" field.
+- Respond with the JSON array only. Do not write anything before or after it. 
+-	Each activity, activity ID and its reason must appear as a separate element in a single JSON array containing all elements.
+
+
+Example Output: {example_output}
+Activities List: {list_block}",You are an Australian secondary educator. Your task is to select activities when requested. Your goal is to select activities that fulfill the given requirements.,openai,gpt-5.6-terra,primary,run_029,2055,success,TRUE,completed,3658,1447,NA
+gpt_terra,basic,k_fixed,25,fixed,15,"As you plan to teach a unit, identify the specific activities that would be most useful for a single 10-week unit on Earth systems and climate change, and explain your reasoning for why each activity would help support better student learning.
+Task:
+-	You will be given a list of 90 possible learning activities.
+-	Read through all 90 activities carefully.
+-	Select exactly 15 activities you consider most useful for teaching a unit on Earth systems and climate change.
+-	For each selected activity, explain your reason for choosing it.
+-	There is a limit of one sentence for each of your explanations. There are no restrictions on the style of your explanations. 
+-	You do not need to mention activities you are not selecting unless you wish to explain why you excluded them.
+-	List your selections using the specified output format for easy parsing.
+
+Output Format:
+-	Select exactly 15 activities. The order in which you list them does not matter.
+-	For each, write only the selected activity as a JSON object, then the activity ID in the ""activity_id"" field and your reason in the ""reason"" field.
+- Respond with the JSON array only. Do not write anything before or after it. 
+-	Each activity, activity ID and its reason must appear as a separate element in a single JSON array containing all elements.
+
+Example Output: {example_output}
+Activities List: {list_block}",You are an Australian secondary educator. Your task is to select activities when requested. Your goal is to select activities that fulfill the given requirements.,openai,gpt-5.6-terra,primary,run_055,2081,success,TRUE,completed,3626,1166,NA
+gpt_terra,quality,k_free,1,free,NA,"As you plan to teach a unit, identify the specific activities that would be most useful for a single 10-week unit on Earth systems and climate change, and explain your reasoning for why each activity would help support better student learning.  
+
+Task:
+-	You will be given a list of 90 possible learning activities.
+-	Read through all 90 activities carefully.
+-	Select the activities you consider most useful for teaching a unit on Earth systems and climate change.
+-	You may select as few or as many activities as you believe are appropriate. There is no minimum or maximum.
+-	For each selected activity, explain your reason for choosing it.
+-	There is a limit of one or two sentences for each of your explanations. There are no restrictions on the style of your explanations. 
+-	You do not need to mention activities you are not selecting unless you wish to explain why you excluded them.
+-	List your selections using the specified output format for easy parsing.
+
+Output Format:
+-	You may select as few or as many activities as you wish. The order in which you list them does not matter.
+-	For each, write only the selected activity as a JSON object, then the activity ID in the ""activity_id"" field and your reason in the ""reason"" field.
+- Respond with the JSON array only. Do not write anything before or after it. 
+-	Each activity, activity ID and its reason must appear as a separate element in a single JSON array containing all elements.
+
+
+Example Output: {example_output}
+Activities List: {list_block}","You are a highly skilled Australian secondary educator known for technical excellence and flawless execution of pedagogical fundamentals. You design activities with precise task sequencing, well-structured lessons, clear curriculum alignment and carefully planned differentiation. Your goal is to design activities of the highest quality through careful refinement and technical mastery.",openai,gpt-5.6-terra,primary,run_061,2087,success,TRUE,completed,3688,1525,NA
+gpt_terra,quality,k_fixed,6,fixed,15,"As you plan to teach a unit, identify the specific activities that would be most useful for a single 10-week unit on Earth systems and climate change, and explain your reasoning for why each activity would help support better student learning.
+Task:
+-	You will be given a list of 90 possible learning activities.
+-	Read through all 90 activities carefully.
+-	Select exactly 15 activities you consider most useful for teaching a unit on Earth systems and climate change.
+-	For each selected activity, explain your reason for choosing it.
+-	There is a limit of one sentence for each of your explanations. There are no restrictions on the style of your explanations. 
+-	You do not need to mention activities you are not selecting unless you wish to explain why you excluded them.
+-	List your selections using the specified output format for easy parsing.
+
+Output Format:
+-	Select exactly 15 activities. The order in which you list them does not matter.
+-	For each, write only the selected activity as a JSON object, then the activity ID in the ""activity_id"" field and your reason in the ""reason"" field.
+- Respond with the JSON array only. Do not write anything before or after it. 
+-	Each activity, activity ID and its reason must appear as a separate element in a single JSON array containing all elements.
+
+Example Output: {example_output}
+Activities List: {list_block}","You are a highly skilled Australian secondary educator known for technical excellence and flawless execution of pedagogical fundamentals. You design activities with precise task sequencing, well-structured lessons, clear curriculum alignment and carefully planned differentiation. Your goal is to design activities of the highest quality through careful refinement and technical mastery.",openai,gpt-5.6-terra,primary,run_096,2122,success,TRUE,completed,3656,1147,NA
+gpt_terra,creativity,k_free,13,free,NA,"As you plan to teach a unit, identify the specific activities that would be most useful for a single 10-week unit on Earth systems and climate change, and explain your reasoning for why each activity would help support better student learning.  
+
+Task:
+-	You will be given a list of 90 possible learning activities.
+-	Read through all 90 activities carefully.
+-	Select the activities you consider most useful for teaching a unit on Earth systems and climate change.
+-	You may select as few or as many activities as you believe are appropriate. There is no minimum or maximum.
+-	For each selected activity, explain your reason for choosing it.
+-	There is a limit of one or two sentences for each of your explanations. There are no restrictions on the style of your explanations. 
+-	You do not need to mention activities you are not selecting unless you wish to explain why you excluded them.
+-	List your selections using the specified output format for easy parsing.
+
+Output Format:
+-	You may select as few or as many activities as you wish. The order in which you list them does not matter.
+-	For each, write only the selected activity as a JSON object, then the activity ID in the ""activity_id"" field and your reason in the ""reason"" field.
+- Respond with the JSON array only. Do not write anything before or after it. 
+-	Each activity, activity ID and its reason must appear as a separate element in a single JSON array containing all elements.
+
+
+Example Output: {example_output}
+Activities List: {list_block}","You are an innovative Australian secondary educator celebrated for creating completely original and unexpected learning activities. You excel at breaking conventional lesson structures and exploring new pedagogical possibilities. Your strength lies in developing unusual task sequences, unconventional lesson structures, or experimental modes of student participation that students would not expect. Your goal is to design activities that are unlike anything that has been taught before, pushing the boundaries of what learning can be through creative experimentation.",openai,gpt-5.6-terra,primary,run_133,2159,success,TRUE,completed,3714,1354,NA
+gpt_terra,creativity,k_fixed,15,fixed,15,"As you plan to teach a unit, identify the specific activities that would be most useful for a single 10-week unit on Earth systems and climate change, and explain your reasoning for why each activity would help support better student learning.
+Task:
+-	You will be given a list of 90 possible learning activities.
+-	Read through all 90 activities carefully.
+-	Select exactly 15 activities you consider most useful for teaching a unit on Earth systems and climate change.
+-	For each selected activity, explain your reason for choosing it.
+-	There is a limit of one sentence for each of your explanations. There are no restrictions on the style of your explanations. 
+-	You do not need to mention activities you are not selecting unless you wish to explain why you excluded them.
+-	List your selections using the specified output format for easy parsing.
+
+Output Format:
+-	Select exactly 15 activities. The order in which you list them does not matter.
+-	For each, write only the selected activity as a JSON object, then the activity ID in the ""activity_id"" field and your reason in the ""reason"" field.
+- Respond with the JSON array only. Do not write anything before or after it. 
+-	Each activity, activity ID and its reason must appear as a separate element in a single JSON array containing all elements.
+
+Example Output: {example_output}
+Activities List: {list_block}","You are an innovative Australian secondary educator celebrated for creating completely original and unexpected learning activities. You excel at breaking conventional lesson structures and exploring new pedagogical possibilities. Your strength lies in developing unusual task sequences, unconventional lesson structures, or experimental modes of student participation that students would not expect. Your goal is to design activities that are unlike anything that has been taught before, pushing the boundaries of what learning can be through creative experimentation.",openai,gpt-5.6-terra,primary,run_165,2191,success,TRUE,completed,3682,1031,NA
+sonnet5,basic,k_free,27,free,NA,"As you plan to teach a unit, identify the specific activities that would be most useful for a single 10-week unit on Earth systems and climate change, and explain your reasoning for why each activity would help support better student learning.  
+
+Task:
+-	You will be given a list of 90 possible learning activities.
+-	Read through all 90 activities carefully.
+-	Select the activities you consider most useful for teaching a unit on Earth systems and climate change.
+-	You may select as few or as many activities as you believe are appropriate. There is no minimum or maximum.
+-	For each selected activity, explain your reason for choosing it.
+-	There is a limit of one or two sentences for each of your explanations. There are no restrictions on the style of your explanations. 
+-	You do not need to mention activities you are not selecting unless you wish to explain why you excluded them.
+-	List your selections using the specified output format for easy parsing.
+
+Output Format:
+-	You may select as few or as many activities as you wish. The order in which you list them does not matter.
+-	For each, write only the selected activity as a JSON object, then the activity ID in the ""activity_id"" field and your reason in the ""reason"" field.
+- Respond with the JSON array only. Do not write anything before or after it. 
+-	Each activity, activity ID and its reason must appear as a separate element in a single JSON array containing all elements.
+
+
+Example Output: {example_output}
+Activities List: {list_block}",You are an Australian secondary educator. Your task is to select activities when requested. Your goal is to select activities that fulfill the given requirements.,anthropic,claude-sonnet-5,primary,run_207,2233,success,TRUE,end_turn,6800,4916,NA
+sonnet5,basic,k_fixed,12,fixed,15,"As you plan to teach a unit, identify the specific activities that would be most useful for a single 10-week unit on Earth systems and climate change, and explain your reasoning for why each activity would help support better student learning.
+Task:
+-	You will be given a list of 90 possible learning activities.
+-	Read through all 90 activities carefully.
+-	Select exactly 15 activities you consider most useful for teaching a unit on Earth systems and climate change.
+-	For each selected activity, explain your reason for choosing it.
+-	There is a limit of one sentence for each of your explanations. There are no restrictions on the style of your explanations. 
+-	You do not need to mention activities you are not selecting unless you wish to explain why you excluded them.
+-	List your selections using the specified output format for easy parsing.
+
+Output Format:
+-	Select exactly 15 activities. The order in which you list them does not matter.
+-	For each, write only the selected activity as a JSON object, then the activity ID in the ""activity_id"" field and your reason in the ""reason"" field.
+- Respond with the JSON array only. Do not write anything before or after it. 
+-	Each activity, activity ID and its reason must appear as a separate element in a single JSON array containing all elements.
+
+Example Output: {example_output}
+Activities List: {list_block}",You are an Australian secondary educator. Your task is to select activities when requested. Your goal is to select activities that fulfill the given requirements.,anthropic,claude-sonnet-5,primary,run_222,2248,success,TRUE,end_turn,6764,1934,NA
+sonnet5,quality,k_free,4,free,NA,"As you plan to teach a unit, identify the specific activities that would be most useful for a single 10-week unit on Earth systems and climate change, and explain your reasoning for why each activity would help support better student learning.  
+
+Task:
+-	You will be given a list of 90 possible learning activities.
+-	Read through all 90 activities carefully.
+-	Select the activities you consider most useful for teaching a unit on Earth systems and climate change.
+-	You may select as few or as many activities as you believe are appropriate. There is no minimum or maximum.
+-	For each selected activity, explain your reason for choosing it.
+-	There is a limit of one or two sentences for each of your explanations. There are no restrictions on the style of your explanations. 
+-	You do not need to mention activities you are not selecting unless you wish to explain why you excluded them.
+-	List your selections using the specified output format for easy parsing.
+
+Output Format:
+-	You may select as few or as many activities as you wish. The order in which you list them does not matter.
+-	For each, write only the selected activity as a JSON object, then the activity ID in the ""activity_id"" field and your reason in the ""reason"" field.
+- Respond with the JSON array only. Do not write anything before or after it. 
+-	Each activity, activity ID and its reason must appear as a separate element in a single JSON array containing all elements.
+
+
+Example Output: {example_output}
+Activities List: {list_block}","You are a highly skilled Australian secondary educator known for technical excellence and flawless execution of pedagogical fundamentals. You design activities with precise task sequencing, well-structured lessons, clear curriculum alignment and carefully planned differentiation. Your goal is to design activities of the highest quality through careful refinement and technical mastery.",anthropic,claude-sonnet-5,primary,run_244,2270,success,TRUE,end_turn,6866,5015,NA
+sonnet5,quality,k_fixed,16,fixed,15,"As you plan to teach a unit, identify the specific activities that would be most useful for a single 10-week unit on Earth systems and climate change, and explain your reasoning for why each activity would help support better student learning.
+Task:
+-	You will be given a list of 90 possible learning activities.
+-	Read through all 90 activities carefully.
+-	Select exactly 15 activities you consider most useful for teaching a unit on Earth systems and climate change.
+-	For each selected activity, explain your reason for choosing it.
+-	There is a limit of one sentence for each of your explanations. There are no restrictions on the style of your explanations. 
+-	You do not need to mention activities you are not selecting unless you wish to explain why you excluded them.
+-	List your selections using the specified output format for easy parsing.
+
+Output Format:
+-	Select exactly 15 activities. The order in which you list them does not matter.
+-	For each, write only the selected activity as a JSON object, then the activity ID in the ""activity_id"" field and your reason in the ""reason"" field.
+- Respond with the JSON array only. Do not write anything before or after it. 
+-	Each activity, activity ID and its reason must appear as a separate element in a single JSON array containing all elements.
+
+Example Output: {example_output}
+Activities List: {list_block}","You are a highly skilled Australian secondary educator known for technical excellence and flawless execution of pedagogical fundamentals. You design activities with precise task sequencing, well-structured lessons, clear curriculum alignment and carefully planned differentiation. Your goal is to design activities of the highest quality through careful refinement and technical mastery.",anthropic,claude-sonnet-5,primary,run_286,2312,success,TRUE,end_turn,6830,3390,NA
+sonnet5,creativity,k_free,5,free,NA,"As you plan to teach a unit, identify the specific activities that would be most useful for a single 10-week unit on Earth systems and climate change, and explain your reasoning for why each activity would help support better student learning.  
+
+Task:
+-	You will be given a list of 90 possible learning activities.
+-	Read through all 90 activities carefully.
+-	Select the activities you consider most useful for teaching a unit on Earth systems and climate change.
+-	You may select as few or as many activities as you believe are appropriate. There is no minimum or maximum.
+-	For each selected activity, explain your reason for choosing it.
+-	There is a limit of one or two sentences for each of your explanations. There are no restrictions on the style of your explanations. 
+-	You do not need to mention activities you are not selecting unless you wish to explain why you excluded them.
+-	List your selections using the specified output format for easy parsing.
+
+Output Format:
+-	You may select as few or as many activities as you wish. The order in which you list them does not matter.
+-	For each, write only the selected activity as a JSON object, then the activity ID in the ""activity_id"" field and your reason in the ""reason"" field.
+- Respond with the JSON array only. Do not write anything before or after it. 
+-	Each activity, activity ID and its reason must appear as a separate element in a single JSON array containing all elements.
+
+
+Example Output: {example_output}
+Activities List: {list_block}","You are an innovative Australian secondary educator celebrated for creating completely original and unexpected learning activities. You excel at breaking conventional lesson structures and exploring new pedagogical possibilities. Your strength lies in developing unusual task sequences, unconventional lesson structures, or experimental modes of student participation that students would not expect. Your goal is to design activities that are unlike anything that has been taught before, pushing the boundaries of what learning can be through creative experimentation.",anthropic,claude-sonnet-5,primary,run_305,2331,success,TRUE,end_turn,6909,4814,NA
+sonnet5,creativity,k_fixed,12,fixed,15,"As you plan to teach a unit, identify the specific activities that would be most useful for a single 10-week unit on Earth systems and climate change, and explain your reasoning for why each activity would help support better student learning.
+Task:
+-	You will be given a list of 90 possible learning activities.
+-	Read through all 90 activities carefully.
+-	Select exactly 15 activities you consider most useful for teaching a unit on Earth systems and climate change.
+-	For each selected activity, explain your reason for choosing it.
+-	There is a limit of one sentence for each of your explanations. There are no restrictions on the style of your explanations. 
+-	You do not need to mention activities you are not selecting unless you wish to explain why you excluded them.
+-	List your selections using the specified output format for easy parsing.
+
+Output Format:
+-	Select exactly 15 activities. The order in which you list them does not matter.
+-	For each, write only the selected activity as a JSON object, then the activity ID in the ""activity_id"" field and your reason in the ""reason"" field.
+- Respond with the JSON array only. Do not write anything before or after it. 
+-	Each activity, activity ID and its reason must appear as a separate element in a single JSON array containing all elements.
+
+Example Output: {example_output}
+Activities List: {list_block}","You are an innovative Australian secondary educator celebrated for creating completely original and unexpected learning activities. You excel at breaking conventional lesson structures and exploring new pedagogical possibilities. Your strength lies in developing unusual task sequences, unconventional lesson structures, or experimental modes of student participation that students would not expect. Your goal is to design activities that are unlike anything that has been taught before, pushing the boundaries of what learning can be through creative experimentation.",anthropic,claude-sonnet-5,primary,run_342,2368,success,TRUE,end_turn,6873,2437,NA
+gemini3_8,basic,k_free,26,free,NA,"As you plan to teach a unit, identify the specific activities that would be most useful for a single 10-week unit on Earth systems and climate change, and explain your reasoning for why each activity would help support better student learning.  
+
+Task:
+-	You will be given a list of 90 possible learning activities.
+-	Read through all 90 activities carefully.
+-	Select the activities you consider most useful for teaching a unit on Earth systems and climate change.
+-	You may select as few or as many activities as you believe are appropriate. There is no minimum or maximum.
+-	For each selected activity, explain your reason for choosing it.
+-	There is a limit of one or two sentences for each of your explanations. There are no restrictions on the style of your explanations. 
+-	You do not need to mention activities you are not selecting unless you wish to explain why you excluded them.
+-	List your selections using the specified output format for easy parsing.
+
+Output Format:
+-	You may select as few or as many activities as you wish. The order in which you list them does not matter.
+-	For each, write only the selected activity as a JSON object, then the activity ID in the ""activity_id"" field and your reason in the ""reason"" field.
+- Respond with the JSON array only. Do not write anything before or after it. 
+-	Each activity, activity ID and its reason must appear as a separate element in a single JSON array containing all elements.
+
+
+Example Output: {example_output}
+Activities List: {list_block}",You are an Australian secondary educator. Your task is to select activities when requested. Your goal is to select activities that fulfill the given requirements.,google,gemini-3.8-flash,primary,run_386,2412,success,TRUE,STOP,3980,972,NA
+gemini3_8,basic,k_fixed,2,fixed,15,"As you plan to teach a unit, identify the specific activities that would be most useful for a single 10-week unit on Earth systems and climate change, and explain your reasoning for why each activity would help support better student learning.
+Task:
+-	You will be given a list of 90 possible learning activities.
+-	Read through all 90 activities carefully.
+-	Select exactly 15 activities you consider most useful for teaching a unit on Earth systems and climate change.
+-	For each selected activity, explain your reason for choosing it.
+-	There is a limit of one sentence for each of your explanations. There are no restrictions on the style of your explanations. 
+-	You do not need to mention activities you are not selecting unless you wish to explain why you excluded them.
+-	List your selections using the specified output format for easy parsing.
+
+Output Format:
+-	Select exactly 15 activities. The order in which you list them does not matter.
+-	For each, write only the selected activity as a JSON object, then the activity ID in the ""activity_id"" field and your reason in the ""reason"" field.
+- Respond with the JSON array only. Do not write anything before or after it. 
+-	Each activity, activity ID and its reason must appear as a separate element in a single JSON array containing all elements.
+
+Example Output: {example_output}
+Activities List: {list_block}",You are an Australian secondary educator. Your task is to select activities when requested. Your goal is to select activities that fulfill the given requirements.,google,gemini-3.8-flash,primary,run_392,2418,success,TRUE,STOP,3949,1271,NA
+gemini3_8,quality,k_free,24,free,NA,"As you plan to teach a unit, identify the specific activities that would be most useful for a single 10-week unit on Earth systems and climate change, and explain your reasoning for why each activity would help support better student learning.  
+
+Task:
+-	You will be given a list of 90 possible learning activities.
+-	Read through all 90 activities carefully.
+-	Select the activities you consider most useful for teaching a unit on Earth systems and climate change.
+-	You may select as few or as many activities as you believe are appropriate. There is no minimum or maximum.
+-	For each selected activity, explain your reason for choosing it.
+-	There is a limit of one or two sentences for each of your explanations. There are no restrictions on the style of your explanations. 
+-	You do not need to mention activities you are not selecting unless you wish to explain why you excluded them.
+-	List your selections using the specified output format for easy parsing.
+
+Output Format:
+-	You may select as few or as many activities as you wish. The order in which you list them does not matter.
+-	For each, write only the selected activity as a JSON object, then the activity ID in the ""activity_id"" field and your reason in the ""reason"" field.
+- Respond with the JSON array only. Do not write anything before or after it. 
+-	Each activity, activity ID and its reason must appear as a separate element in a single JSON array containing all elements.
+
+
+Example Output: {example_output}
+Activities List: {list_block}","You are a highly skilled Australian secondary educator known for technical excellence and flawless execution of pedagogical fundamentals. You design activities with precise task sequencing, well-structured lessons, clear curriculum alignment and carefully planned differentiation. Your goal is to design activities of the highest quality through careful refinement and technical mastery.",google,gemini-3.8-flash,primary,run_444,2470,success,TRUE,STOP,4009,1199,NA
+gemini3_8,quality,k_fixed,19,fixed,15,"As you plan to teach a unit, identify the specific activities that would be most useful for a single 10-week unit on Earth systems and climate change, and explain your reasoning for why each activity would help support better student learning.
+Task:
+-	You will be given a list of 90 possible learning activities.
+-	Read through all 90 activities carefully.
+-	Select exactly 15 activities you consider most useful for teaching a unit on Earth systems and climate change.
+-	For each selected activity, explain your reason for choosing it.
+-	There is a limit of one sentence for each of your explanations. There are no restrictions on the style of your explanations. 
+-	You do not need to mention activities you are not selecting unless you wish to explain why you excluded them.
+-	List your selections using the specified output format for easy parsing.
+
+Output Format:
+-	Select exactly 15 activities. The order in which you list them does not matter.
+-	For each, write only the selected activity as a JSON object, then the activity ID in the ""activity_id"" field and your reason in the ""reason"" field.
+- Respond with the JSON array only. Do not write anything before or after it. 
+-	Each activity, activity ID and its reason must appear as a separate element in a single JSON array containing all elements.
+
+Example Output: {example_output}
+Activities List: {list_block}","You are a highly skilled Australian secondary educator known for technical excellence and flawless execution of pedagogical fundamentals. You design activities with precise task sequencing, well-structured lessons, clear curriculum alignment and carefully planned differentiation. Your goal is to design activities of the highest quality through careful refinement and technical mastery.",google,gemini-3.8-flash,primary,run_469,2495,success,TRUE,STOP,3978,1279,NA
+gemini3_8,creativity,k_free,15,free,NA,"As you plan to teach a unit, identify the specific activities that would be most useful for a single 10-week unit on Earth systems and climate change, and explain your reasoning for why each activity would help support better student learning.  
+
+Task:
+-	You will be given a list of 90 possible learning activities.
+-	Read through all 90 activities carefully.
+-	Select the activities you consider most useful for teaching a unit on Earth systems and climate change.
+-	You may select as few or as many activities as you believe are appropriate. There is no minimum or maximum.
+-	For each selected activity, explain your reason for choosing it.
+-	There is a limit of one or two sentences for each of your explanations. There are no restrictions on the style of your explanations. 
+-	You do not need to mention activities you are not selecting unless you wish to explain why you excluded them.
+-	List your selections using the specified output format for easy parsing.
+
+Output Format:
+-	You may select as few or as many activities as you wish. The order in which you list them does not matter.
+-	For each, write only the selected activity as a JSON object, then the activity ID in the ""activity_id"" field and your reason in the ""reason"" field.
+- Respond with the JSON array only. Do not write anything before or after it. 
+-	Each activity, activity ID and its reason must appear as a separate element in a single JSON array containing all elements.
+
+
+Example Output: {example_output}
+Activities List: {list_block}","You are an innovative Australian secondary educator celebrated for creating completely original and unexpected learning activities. You excel at breaking conventional lesson structures and exploring new pedagogical possibilities. Your strength lies in developing unusual task sequences, unconventional lesson structures, or experimental modes of student participation that students would not expect. Your goal is to design activities that are unlike anything that has been taught before, pushing the boundaries of what learning can be through creative experimentation.",google,gemini-3.8-flash,primary,run_495,2521,success,TRUE,STOP,4035,995,NA
+gemini3_8,creativity,k_fixed,29,fixed,15,"As you plan to teach a unit, identify the specific activities that would be most useful for a single 10-week unit on Earth systems and climate change, and explain your reasoning for why each activity would help support better student learning.
+Task:
+-	You will be given a list of 90 possible learning activities.
+-	Read through all 90 activities carefully.
+-	Select exactly 15 activities you consider most useful for teaching a unit on Earth systems and climate change.
+-	For each selected activity, explain your reason for choosing it.
+-	There is a limit of one sentence for each of your explanations. There are no restrictions on the style of your explanations. 
+-	You do not need to mention activities you are not selecting unless you wish to explain why you excluded them.
+-	List your selections using the specified output format for easy parsing.
+
+Output Format:
+-	Select exactly 15 activities. The order in which you list them does not matter.
+-	For each, write only the selected activity as a JSON object, then the activity ID in the ""activity_id"" field and your reason in the ""reason"" field.
+- Respond with the JSON array only. Do not write anything before or after it. 
+-	Each activity, activity ID and its reason must appear as a separate element in a single JSON array containing all elements.
+
+Example Output: {example_output}
+Activities List: {list_block}","You are an innovative Australian secondary educator celebrated for creating completely original and unexpected learning activities. You excel at breaking conventional lesson structures and exploring new pedagogical possibilities. Your strength lies in developing unusual task sequences, unconventional lesson structures, or experimental modes of student participation that students would not expect. Your goal is to design activities that are unlike anything that has been taught before, pushing the boundaries of what learning can be through creative experimentation.",google,gemini-3.8-flash,primary,run_539,2565,success,TRUE,STOP,4004,1292,NA
